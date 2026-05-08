@@ -1,0 +1,17 @@
+{
+  "name": "11-investment-zero-state",
+  "description": "Verify get_session_stats returns sane zero-state for a brand-new user with no actions yet, and again after a single keep-only commit (no vault movement).",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"] }
+  },
+  "steps": [
+    { "tool": "get_session_stats", "input": {}, "note": "before any action — totals should be 0, restore_rate_pct=0, first_action_ts=null" },
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "keep" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "keep" } },
+    { "tool": "get_session_stats", "input": {}, "note": "current_session.pending_keep should be 2, but investment.total_vaulted still 0 (kept doesn't vault)" },
+    { "tool": "commit_session", "input": {}, "note": "two keeps — vault stays empty" },
+    { "tool": "get_session_stats", "input": {}, "note": "post-commit — investment block still all zero" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "any" }, "note": "vault is empty — summary.total_in_vault=0" }
+  ]
+}

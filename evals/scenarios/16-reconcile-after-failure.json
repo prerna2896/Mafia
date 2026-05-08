@@ -1,0 +1,19 @@
+{
+  "name": "16-reconcile-after-failure",
+  "description": "Commit with fail_once on archive — first archive becomes 'failed' with upstream_status set. Second commit_session triggers reconcileInFlight (no rows in *-ing remain since fail_once already advanced them to failed), then re-flagging the same email in a new flag fails because it's terminal — but a fresh act_on_email creates a NEW row. Verify reconciled_pre_commit shape on a clean commit.",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"] },
+    "fail_once": ["archive"]
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "archive" }, "note": "will fail upstream" },
+    { "tool": "commit_session", "input": { "dry_run": true }, "note": "dry_run preview — should show would_archive_to_vault=1, no Gmail call yet" },
+    { "tool": "commit_session", "input": {}, "note": "first archive() consumes fail_once → failed; reconciled_pre_commit should be {reconciled:0, failed:0}" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "failed" }, "note": "expect 1 failed item with upstream_status from the mock error" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "archive" }, "note": "fresh row — fail_once already consumed, this should succeed" },
+    { "tool": "commit_session", "input": {}, "note": "should vault msg2; reconciled_pre_commit still {0,0}" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "quarantined" }, "note": "expect 1 (msg2)" },
+    { "tool": "get_session_stats", "input": {}, "note": "investment.total_vaulted=1 — failed rows do NOT count toward total_vaulted (only quarantined/restored/purged do)" }
+  ]
+}

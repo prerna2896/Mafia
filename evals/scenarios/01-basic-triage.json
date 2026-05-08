@@ -1,0 +1,21 @@
+{
+  "name": "01-basic-triage",
+  "description": "Flag three emails (delete, archive, keep), commit, verify state.",
+  "use_mock": true,
+  "mock": {
+    "labels": {
+      "msg1": ["INBOX"],
+      "msg2": ["INBOX"],
+      "msg3": ["INBOX"]
+    }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" }, "note": "flag a delete" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "archive" }, "note": "flag an archive" },
+    { "tool": "act_on_email", "input": { "email_id": "msg3", "action": "keep" }, "note": "flag a keep" },
+    { "tool": "commit_session", "input": { "dry_run": true }, "note": "preview before commit" },
+    { "tool": "commit_session", "input": {}, "note": "actual commit" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "quarantined" } },
+    { "tool": "get_session_stats", "input": {} }
+  ]
+}

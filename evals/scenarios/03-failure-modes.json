@@ -1,0 +1,16 @@
+{
+  "name": "03-failure-modes",
+  "description": "Simulate Gmail failures and verify graceful degradation.",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"] },
+    "fail_once": ["trash"]
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" }, "note": "flag — local only, no failure yet" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "delete" } },
+    { "tool": "commit_session", "input": {}, "note": "first trash() will fail; second should succeed since failOnce is consumed" },
+    { "tool": "list_vault", "input": { "state": "any" }, "note": "expect 1 failed + 1 quarantined" },
+    { "tool": "restore", "input": { "action_id": "does-not-exist" }, "expect_error": true, "note": "restore nonexistent → error" }
+  ]
+}

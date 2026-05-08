@@ -1,0 +1,19 @@
+{
+  "name": "15-restore-batch-mixed",
+  "description": "Restore multiple actions in a single batch_action_ids call. Mix valid IDs with one invalid ID; expect partial success — restored_count for valid, failures array for invalid. Also exercises empty batch + zero-arg error.",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"], "msg3": ["INBOX"] }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" }, "note": "step 0" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "delete" }, "note": "step 1" },
+    { "tool": "act_on_email", "input": { "email_id": "msg3", "action": "archive" }, "note": "step 2" },
+    { "tool": "commit_session", "input": {} },
+    { "tool": "restore", "input": { "batch_action_ids": ["<step:0.action_id>", "<step:1.action_id>", "act_invalid"] }, "note": "expect restored_count=2, failures has act_invalid entry, success=false" },
+    { "tool": "restore", "input": { "batch_action_ids": [] }, "expect_error": true, "note": "empty array — restore tool requires at least one of action_id/email_id/batch_action_ids; behavior on [] is observational" },
+    { "tool": "restore", "input": {}, "expect_error": true, "note": "no args at all — should return error 'Provide one of...'" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "restored" }, "note": "should have 2 restored items (msg1, msg2)" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "quarantined" }, "note": "should have 1 quarantined (msg3)" }
+  ]
+}

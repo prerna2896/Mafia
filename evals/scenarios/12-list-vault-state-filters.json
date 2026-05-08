@@ -1,0 +1,21 @@
+{
+  "name": "12-list-vault-state-filters",
+  "description": "Exercise every value of list_vault's state enum (quarantined, restored, purged, failed, any). Builds a row in each non-purged state, then verifies each filter returns only matching items.",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"], "msg3": ["INBOX"] },
+    "fail_once": ["trash"]
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" }, "note": "msg1 → will fail (fail_once on trash)" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "archive" }, "note": "msg2 → quarantined" },
+    { "tool": "act_on_email", "input": { "email_id": "msg3", "action": "delete" }, "note": "msg3 → will quarantine then restore" },
+    { "tool": "commit_session", "input": {}, "note": "msg1 fails, msg2+msg3 quarantine" },
+    { "tool": "restore", "input": { "email_id": "msg3" }, "note": "msg3 → restored" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "quarantined" }, "note": "expect 1 item (msg2) — items array length 1" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "restored" }, "note": "expect 1 item (msg3)" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "failed" }, "note": "expect 1 item (msg1)" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "purged" }, "note": "expect 0 items — none purged in mock window" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "any" }, "note": "expect 3 items — sum of all non-purged" }
+  ]
+}

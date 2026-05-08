@@ -1,0 +1,17 @@
+{
+  "name": "24-bug-list-vault-default-args",
+  "description": "BUG REPRO — list_vault tool function does not apply zod schema defaults internally. When called with no since_days (relying on schema default of 30), the tool computes Math.floor(now/1000) - undefined*86400 = NaN, and SQLite WHERE state_changed_at >= NaN returns no rows. Production MCP host (Claude Desktop) probably does not hit this because the SDK validates against the schema and applies defaults, but the eval runner and any direct caller do hit it. Same class of bug for the `state` default — if omitted, filter compares against undefined and returns []. Behavior-wise these scenario steps come back ok=true with empty items[] when they should return populated rows. Flagged for human follow-up: tools should either (a) parse input with their schema before running, or (b) stop relying on defaults and use ?? in code.",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"] }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "archive" } },
+    { "tool": "commit_session", "input": {}, "note": "vaults both — commit summary.total=2" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "quarantined" }, "note": "CONTROL — explicit args. Should return 2 items. Confirms vault really has them." },
+    { "tool": "list_vault", "input": {}, "note": "BUG: empty input. Schema defaults are since_days=30, state='quarantined' so this should be equivalent to the control. Actual: returns total_in_vault=0, items=[]. Compare with the control step above." },
+    { "tool": "list_vault", "input": { "state": "quarantined" }, "note": "BUG: only state provided. since_days default not applied → since_ts=NaN → empty result." },
+    { "tool": "list_vault", "input": { "since_days": 30 }, "note": "BUG: only since_days provided. state default not applied → filter compares against undefined → empty result." }
+  ]
+}

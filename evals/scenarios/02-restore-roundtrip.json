@@ -1,0 +1,20 @@
+{
+  "name": "02-restore-roundtrip",
+  "description": "Vault an email, restore by action_id from list_vault, verify state.",
+  "use_mock": true,
+  "mock": {
+    "labels": {
+      "msg1": ["INBOX"],
+      "msg2": ["INBOX"]
+    }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "archive" } },
+    { "tool": "commit_session", "input": {} },
+    { "tool": "list_vault", "input": { "state": "quarantined" }, "note": "should show 2 items" },
+    { "tool": "restore", "input": { "email_id": "msg1" }, "note": "restore the delete by email_id" },
+    { "tool": "restore", "input": { "email_id": "msg2" }, "note": "restore the archive by email_id" },
+    { "tool": "list_vault", "input": { "state": "any" }, "note": "should now show 2 restored, 0 quarantined" }
+  ]
+}

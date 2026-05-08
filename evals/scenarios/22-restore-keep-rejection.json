@@ -1,0 +1,18 @@
+{
+  "name": "22-restore-keep-rejection",
+  "description": "Edge case: restoring a 'kept' action makes no sense (it never left the inbox). Verify the system rejects this cleanly. Also covers restoring an already-restored row (terminal state).",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"] }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "keep" }, "note": "step 0 — flagged as keep" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "delete" }, "note": "step 1 — flagged as delete" },
+    { "tool": "commit_session", "input": {}, "note": "msg1 → kept (terminal), msg2 → quarantined" },
+    { "tool": "restore", "input": { "action_id": "<step:0.action_id>" }, "expect_error": true, "note": "kept rows can't be restored — restore tool checks state !== 'quarantined' and errors" },
+    { "tool": "restore", "input": { "email_id": "msg1" }, "expect_error": true, "note": "by email_id also fails — no quarantined row exists for msg1" },
+    { "tool": "restore", "input": { "email_id": "msg2" }, "note": "msg2 restore — succeeds" },
+    { "tool": "restore", "input": { "email_id": "msg2" }, "expect_error": true, "note": "second restore on msg2 — no quarantined row remains" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "any" }, "note": "should show 1 restored (msg2); kept rows are not in vault listing" }
+  ]
+}

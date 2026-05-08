@@ -1,0 +1,27 @@
+{
+  "name": "19-mixed-intent-batch",
+  "description": "Single commit with a heterogeneous batch: 5 archives, 3 deletes, 2 keeps. Verify commit_session.summary breakdown matches per-intent counts (vaulted_archive=5, vaulted_delete=3, kept=2, total=10).",
+  "use_mock": true,
+  "mock": {
+    "labels": {
+      "a1": ["INBOX"], "a2": ["INBOX"], "a3": ["INBOX"], "a4": ["INBOX"], "a5": ["INBOX"],
+      "d1": ["INBOX"], "d2": ["INBOX"], "d3": ["INBOX"],
+      "k1": ["INBOX"], "k2": ["INBOX"]
+    }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "a1", "action": "archive" } },
+    { "tool": "act_on_email", "input": { "email_id": "a2", "action": "archive" } },
+    { "tool": "act_on_email", "input": { "email_id": "a3", "action": "archive" } },
+    { "tool": "act_on_email", "input": { "email_id": "a4", "action": "archive" } },
+    { "tool": "act_on_email", "input": { "email_id": "a5", "action": "archive" } },
+    { "tool": "act_on_email", "input": { "email_id": "d1", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "d2", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "d3", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "k1", "action": "keep" } },
+    { "tool": "act_on_email", "input": { "email_id": "k2", "action": "keep" } },
+    { "tool": "commit_session", "input": { "dry_run": true }, "note": "preview: would_archive_to_vault=5, would_move_to_vault=3, would_keep=2, total=10" },
+    { "tool": "commit_session", "input": {}, "note": "actual: vaulted_archive=5, vaulted_delete=3, kept=2, failed=0, total=10" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "quarantined" }, "note": "summary.total_in_vault=8 (5 archives + 3 deletes); kept items not in vault" }
+  ]
+}

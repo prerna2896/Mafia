@@ -1,0 +1,20 @@
+{
+  "name": "20-failure-then-restore-rate",
+  "description": "Commit with fail_once on archive — verify mix of quarantined and failed in commit_session.summary, then run a restore on a quarantined item and verify get_session_stats.investment.restore_rate_pct accounts only for vaulted items in the denominator (not failed).",
+  "use_mock": true,
+  "mock": {
+    "labels": {
+      "msg1": ["INBOX"], "msg2": ["INBOX"], "msg3": ["INBOX"], "msg4": ["INBOX"]
+    },
+    "fail_once": ["archive"]
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "archive" }, "note": "first archive — fail_once consumed → failed" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "archive" }, "note": "succeeds → quarantined" },
+    { "tool": "act_on_email", "input": { "email_id": "msg3", "action": "delete" }, "note": "succeeds → quarantined" },
+    { "tool": "act_on_email", "input": { "email_id": "msg4", "action": "delete" }, "note": "succeeds → quarantined" },
+    { "tool": "commit_session", "input": {}, "note": "expect: failed=1, vaulted_archive=1, vaulted_delete=2, total=4. failures array has msg1 with upstream_status." },
+    { "tool": "restore", "input": { "email_id": "msg2" }, "note": "restore one archive" },
+    { "tool": "get_session_stats", "input": {}, "note": "investment.total_vaulted=3 (excludes failed), total_restored=1, restore_rate_pct≈33.3" }
+  ]
+}

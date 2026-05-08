@@ -1,0 +1,17 @@
+{
+  "name": "21-allowlist-provenance",
+  "description": "Flag with rule_provenance set (e.g. 'promo-rule-v1'), commit, then list_vault and verify the provenance string survives end-to-end into the items[].rule_provenance output. PRD §5.3: allowlist + rule provenance is core trust UX.",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"], "msg3": ["INBOX"] }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete", "rule_provenance": "promo-rule-v1" }, "note": "tagged by named rule" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "archive", "rule_provenance": "ai-suggestion:newsletter-cluster-7" }, "note": "tagged by AI suggestion" },
+    { "tool": "act_on_email", "input": { "email_id": "msg3", "action": "delete" }, "note": "no provenance — should default to 'user'" },
+    { "tool": "commit_session", "input": {} },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "quarantined" }, "note": "items[].rule_provenance must include 'promo-rule-v1', 'ai-suggestion:newsletter-cluster-7', and 'user'" },
+    { "tool": "restore", "input": { "email_id": "msg1" }, "note": "restore the rule-flagged one — restore should not lose provenance on the source row" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "any" }, "note": "msg1 now restored but rule_provenance='promo-rule-v1' still on the row — long-lived signal" }
+  ]
+}

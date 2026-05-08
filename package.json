@@ -1,0 +1,36 @@
+{
+  "name": "mafia-mcp",
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "auth": "tsx src/scripts/auth.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "eval": "tsx evals/runner.ts && tsx evals/report.ts",
+    "eval:mock": "tsx evals/runner.ts mock && tsx evals/report.ts",
+    "eval:live": "tsx evals/runner.ts live && tsx evals/report.ts",
+    "eval:report": "tsx evals/report.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "better-sqlite3": "^12.9.0",
+    "dotenv": "^16.4.5",
+    "googleapis": "^144.0.0",
+    "open": "^10.1.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
+    "@types/node": "^20.11.0",
+    "@vitest/coverage-v8": "^4.1.5",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.5"
+  }
+}

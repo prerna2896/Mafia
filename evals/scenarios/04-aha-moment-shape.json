@@ -1,0 +1,21 @@
+{
+  "name": "04-aha-moment-shape",
+  "description": "Verify get_session_stats surfaces investment metrics, not streak-style counters. PRD §5.5 alignment.",
+  "use_mock": true,
+  "mock": {
+    "labels": {
+      "msg1": ["INBOX"], "msg2": ["INBOX"], "msg3": ["INBOX"],
+      "msg4": ["INBOX"], "msg5": ["INBOX"]
+    }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg3", "action": "archive" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg4", "action": "archive" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg5", "action": "keep" } },
+    { "tool": "commit_session", "input": {} },
+    { "tool": "restore", "input": { "email_id": "msg1" }, "note": "one restore — should produce non-zero restore_rate_pct" },
+    { "tool": "get_session_stats", "input": {}, "note": "investment block must include total_vaulted, total_restored, restore_rate_pct, reflog_entries" }
+  ]
+}

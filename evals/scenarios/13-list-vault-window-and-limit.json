@@ -1,0 +1,21 @@
+{
+  "name": "13-list-vault-window-and-limit",
+  "description": "Exercise list_vault's since_days and limit boundaries. Vault 4 items, then list with limit=1, limit=500, since_days=1, since_days=365 to confirm filter shape and summary behavior.",
+  "use_mock": true,
+  "mock": {
+    "labels": {
+      "msg1": ["INBOX"], "msg2": ["INBOX"], "msg3": ["INBOX"], "msg4": ["INBOX"]
+    }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg3", "action": "archive" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg4", "action": "archive" } },
+    { "tool": "commit_session", "input": {} },
+    { "tool": "list_vault", "input": { "since_days": 1, "limit": 100, "state": "quarantined" }, "note": "1-day window — fresh items still visible" },
+    { "tool": "list_vault", "input": { "since_days": 365, "limit": 100, "state": "any" }, "note": "max window — same items returned" },
+    { "tool": "list_vault", "input": { "since_days": 30, "limit": 1, "state": "quarantined" }, "note": "limit=1 — items length should be 1; summary counts unaffected by limit (computed from full list)" },
+    { "tool": "list_vault", "input": { "since_days": 30, "limit": 500, "state": "quarantined" }, "note": "max limit — all 4 items returned" }
+  ]
+}

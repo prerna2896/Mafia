@@ -1,0 +1,16 @@
+{
+  "name": "14-restore-by-action-id",
+  "description": "Restore by action_id (the unambiguous form), pulling the ID from the act_on_email step output via template substitution. Also verifies that restore(action_id=missing) errors cleanly.",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"] }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "archive" }, "note": "step 0 → action_id captured for later" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "delete" } },
+    { "tool": "commit_session", "input": {} },
+    { "tool": "restore", "input": { "action_id": "<step:0.action_id>" }, "note": "restore msg1 by its action_id from step 0 (archive intent → unarchive)" },
+    { "tool": "restore", "input": { "action_id": "act_does_not_exist" }, "expect_error": true, "note": "missing action_id surfaces an error to the agent" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "any" }, "note": "msg1=restored, msg2=quarantined" }
+  ]
+}

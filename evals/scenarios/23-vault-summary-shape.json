@@ -1,0 +1,21 @@
+{
+  "name": "23-vault-summary-shape",
+  "description": "Verify list_vault.summary surfaces the vault-as-a-place metadata: total_in_vault, restored_in_window, retention_days, earliest_purge_in_days. PRD §5.4 — Vault is a top-level browseable surface, not a buried recovery flow.",
+  "use_mock": true,
+  "mock": {
+    "labels": {
+      "msg1": ["INBOX"], "msg2": ["INBOX"], "msg3": ["INBOX"], "msg4": ["INBOX"]
+    }
+  },
+  "steps": [
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "any" }, "note": "empty vault — summary.total_in_vault=0, retention_days=30, earliest_purge_in_days=null, message='Vault is empty.'" },
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg3", "action": "archive" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg4", "action": "archive" } },
+    { "tool": "commit_session", "input": {} },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "quarantined" }, "note": "summary.total_in_vault=4, earliest_purge_in_days≈30 (just-vaulted), retention_days=30; items[].days_until_purge close to 30; items[].body_recoverable true for delete intents, false for archive" },
+    { "tool": "restore", "input": { "email_id": "msg1" } },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "any" }, "note": "summary now: total_in_vault=3, restored_in_window=1, message reflects 3 in vault" }
+  ]
+}

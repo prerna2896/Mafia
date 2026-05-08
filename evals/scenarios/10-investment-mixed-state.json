@@ -1,0 +1,23 @@
+{
+  "name": "10-investment-mixed-state",
+  "description": "Build a varied portfolio (vaulted + restored + failed + kept) and verify get_session_stats reflects ratios. PRD §5.5 — investment surfaces should show calibration via restore_rate_pct.",
+  "use_mock": true,
+  "mock": {
+    "labels": {
+      "msg1": ["INBOX"], "msg2": ["INBOX"], "msg3": ["INBOX"],
+      "msg4": ["INBOX"], "msg5": ["INBOX"], "msg6": ["INBOX"]
+    },
+    "fail_once": ["archive"]
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" }, "note": "will vault" },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "delete" }, "note": "will vault then restore" },
+    { "tool": "act_on_email", "input": { "email_id": "msg3", "action": "archive" }, "note": "will vault" },
+    { "tool": "act_on_email", "input": { "email_id": "msg4", "action": "archive" }, "note": "first archive() consumes fail_once → fails" },
+    { "tool": "act_on_email", "input": { "email_id": "msg5", "action": "archive" }, "note": "will vault (fail_once already spent)" },
+    { "tool": "act_on_email", "input": { "email_id": "msg6", "action": "keep" }, "note": "kept — should not count toward total_vaulted" },
+    { "tool": "commit_session", "input": {}, "note": "expect: 4 vaulted, 1 failed, 1 kept" },
+    { "tool": "restore", "input": { "email_id": "msg2" }, "note": "1 restore — restore_rate_pct should be ~25%" },
+    { "tool": "get_session_stats", "input": {}, "note": "verify investment.total_vaulted=4, total_restored=1, restore_rate_pct≈25.0" }
+  ]
+}

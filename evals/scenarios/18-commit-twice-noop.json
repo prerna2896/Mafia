@@ -1,0 +1,17 @@
+{
+  "name": "18-commit-twice-noop",
+  "description": "Commit a session, then call commit_session again immediately. Second call should be a no-op (no flagged actions remain). Verifies the 'No flagged actions in this session' message branch.",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"], "msg2": ["INBOX"] }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" } },
+    { "tool": "act_on_email", "input": { "email_id": "msg2", "action": "archive" } },
+    { "tool": "commit_session", "input": {}, "note": "first commit — vaults both" },
+    { "tool": "commit_session", "input": {}, "note": "second commit — should return 'No flagged actions' message, no error" },
+    { "tool": "commit_session", "input": { "dry_run": true }, "note": "dry_run on empty session — same no-op message" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "quarantined" }, "note": "still 2 vaulted — not duplicated" },
+    { "tool": "get_session_stats", "input": {}, "note": "investment.total_vaulted=2, no double-counting" }
+  ]
+}

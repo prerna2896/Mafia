@@ -1,0 +1,16 @@
+{
+  "name": "17-flag-supersession-idempotence",
+  "description": "Flag the same email twice in one session with different intents — second flag supersedes the first (per outbox.ts FlagArgs comment). Then commit and verify only ONE row was processed (the latest intent). Also covers act_on_email returning a fresh action_id per call.",
+  "use_mock": true,
+  "mock": {
+    "labels": { "msg1": ["INBOX"] }
+  },
+  "steps": [
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "delete" }, "note": "step 0 — first flag" },
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "archive" }, "note": "step 1 — second flag with different intent supersedes the first" },
+    { "tool": "act_on_email", "input": { "email_id": "msg1", "action": "keep" }, "note": "step 2 — third flag, final intent is keep" },
+    { "tool": "commit_session", "input": { "dry_run": true }, "note": "preview — total should be 1 (not 3); would_keep=1" },
+    { "tool": "commit_session", "input": {}, "note": "actual commit — summary.kept=1, vaulted=0, total=1" },
+    { "tool": "list_vault", "input": { "since_days": 30, "state": "any" }, "note": "vault should be empty — final intent was keep" }
+  ]
+}
