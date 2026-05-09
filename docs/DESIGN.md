@@ -118,7 +118,7 @@ Updated 2026-05-09 — prototype now ~2× the surface area as initial extraction
 | `MafiaApp` | `MafiaApp.tsx` | Tab nav shell + onboarded/signedIn gating via localStorage. Includes a "Replay onboarding" debug badge. | High |
 | `PhoneFrame` | `PhoneFrame.tsx` | Marketing wrapper. | Skip |
 | `VibeProvider` + `VibeToggle` | `vibe.tsx` | Calm/playful toggle (§2). | High |
-| `PhotoViewer` | `PhotoViewer.tsx` | Fullscreen photo, swipe-down dismiss, swipe L/R nav, keyboard arrows, 3-dot action menu (Restore / Move to Vault / Share). | High |
+| `PhotoViewer` | `PhotoViewer.tsx` | Fullscreen photo, swipe-down dismiss, swipe L/R nav, keyboard arrows, 3-dot menu, **two-finger pinch-zoom (1×–4×) with pan, double-tap to toggle 1×↔2×, zoom badge, auto-reset on photo change**. | High |
 | `icons.tsx` | — | Custom stroked icons + Dot. | Medium |
 | `data.ts` | — | Mock surfaces, vault items, senders. **`VaultItem` now has optional `snapshot` field** (`from`, `subject`, `date`) for upstream-purged restore. | Reference |
 | `Onboarding` | `onboarding/Onboarding.tsx` | 7-rung ladder per §5.0; localStorage-persisted; back-nav guards prevent step skipping. | High |
@@ -133,7 +133,7 @@ Updated 2026-05-09 — prototype now ~2× the surface area as initial extraction
 | `Sheets` | `_sheets/Sheets.tsx` | `SheetShell` (bottom-sheet primitive), `ConfirmSheet`, `PaywallSheet`, `CancelSubscriptionSheet`, `EmailPreviewSheet`, `FeedbackSheet`, `WhyVaultedSheet`, `ItemContextMenu`, `useLongPress` hook. | High |
 | `SearchVault` | `_sheets/SearchVault.tsx` | Full-screen search overlay; recent chips; cross-surface result rows with inline restore. | High |
 | `SurfaceDetail` | `_sheets/SurfaceDetail.tsx` | Per-surface drill-down — storage breakdown bar (Used / Vaulted / Headroom), top senders/folders, last-30d activity. | Medium |
-| `ConflictResolution` | `_sheets/ConflictResolution.tsx` | Cross-surface duplicate groups; pick canonical surface per group. | Medium |
+| `ConflictResolution` | `_sheets/ConflictResolution.tsx` | Cross-surface duplicate groups; pick canonical surface per group; **success state with checkmark + Kept/Vaulted/Lost stats panel**; CTA copy adapts to selection progress. | Medium |
 | `ConnectionCeremony` | `_sheets/ConnectionCeremony.tsx` | 4-step add-a-new-surface flow that mirrors onboarding rungs 3–6 contextually. | Medium |
 
 ### 4.3 Sheet system (added 2026-05-09)
@@ -255,9 +255,9 @@ Updated 2026-05-09. Cross-checked against `vault-view/` HEAD `75ca821`.
 | §5.0a Aha moment | ✅ fully | Onboarding step 6 + Home Discoveries + BurstDetail. Three angles realized. |
 | §5.1 Connect (sources) | ✅ | Surfaces tab + ConnectionCeremony 4-step add flow + ScopeManager per-surface sheet. |
 | §5.2 Discover | ✅ | Home Discoveries scroll + SendersDetail + BurstDetail. SearchVault adds cross-surface lookup. |
-| §5.3 Decide / rules | ⚠️ partial | Bundle Review (Vault, SendersDetail) lets users select which items to act on. WhyVaultedSheet shows rule provenance. **Allowlist editor still missing.** |
+| §5.3 Decide / rules | ✅ | Bundle Review (Vault, SendersDetail), `WhyVaultedSheet` (rule provenance), Insights now has **editable allowlist** with [×] removable chips + "+ Teach a new preference" inline form. |
 | §5.4 Vault | ✅ fully | First-class tab; Review with Swipe/Grid; long-press → ItemContextMenu (Restore / Why / Find similar / Share / Permanent purge). |
-| §5.5 Reflect / Insights | ✅ fully | Wrapped-style cards + "this week we learned" panel. |
+| §5.5 Reflect / Insights | ✅ fully | Wrapped-style cards + "this week we learned" panel + editable allowlist (see §5.3). |
 | §5.6 Nudges | ⚠️ partial | Three-archetype invitation card on Home ✅. **Notification / Live Activity / widget mockups still missing.** |
 | §5.7 Agent surface (MCP) | n/a | UI prototype scope; covered by Mafia |
 | §6.2 Read-only-first | ✅ | Onboarding step 3 pre-prompt + step 7 explicit grant; ScopeManager exposes ongoing toggle. |
@@ -291,15 +291,15 @@ These are *not* in the PRD verbatim but emerged in the prototype. Worth keeping 
 
 ## 11. What's still missing (build for V1)
 
-After the 2026-05-09 prototype refresh, the remaining gaps are narrow:
+After the 2026-05-09 prototype refresh #2, only one design gap remains:
 
-1. **Notification / Live Activity / widget mockups** — Tier 2 #7 in `docs/DESIGN-PROMPTS.md`. The system-level surfaces of PRD §5.6 nudges aren't drawn yet.
-2. **Allowlist editor** — Insights shows learned preferences in the Wrapped card and "this week we learned" panel, but there's no editable chip/list. Tier 3 #12.
-3. **Pull-to-refresh** affordance on list surfaces — implementation-level, not really a design gap.
-4. **Real photo viewer pinch-zoom + pan** — `PhotoViewer.tsx` has swipe-nav and dismiss but doesn't show pinch-to-zoom UX. Confirm before iOS port whether the prototype design intends pinch-zoom or fitted-viewing only.
-5. **Conflict resolution result state** — `ConflictResolution.tsx` lets user pick canonical, but the post-pick "you've resolved 3 of N" state isn't drawn.
+1. **Notification / Live Activity / widget mockups** — Tier 2 #7. The system-level surfaces of PRD §5.6 nudges (lock-screen notification "Vault purging in 3 days", Dynamic Island scan progress, home-screen widget) aren't drawn yet. Mockups, not implementation — these can be drawn directly in Figma if Lovable is awkward for OS-chrome work.
 
-That's it. **The remaining PRD §5 surface area is design-complete enough to start V1 iOS work.** The Tier 1 ship-blockers from the previous round are all closed.
+Implementation-level (not really a design gap):
+
+- **Pull-to-refresh** affordance — standard iOS pattern, no design needed.
+
+**Otherwise the prototype is design-complete for V1 iOS implementation.** Closed since last validation: pinch-zoom in `PhotoViewer`, conflict-resolution success state with stats panel, allowlist editor in Insights.
 
 ---
 

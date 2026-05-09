@@ -97,7 +97,7 @@ The 12-item checklist in `docs/LOCAL-TESTING.md` is the human-verifiable gate. R
 >
 > **Design source:** see `docs/DESIGN.md` for the design language, IA, copy library, and PRD↔prototype mapping. Prototype lives in `vault-view/` (gitignored, cloned from `github.com/prerna2896/vault-view`).
 >
-> **Design status (2026-05-09):** prototype now realizes ~80% of V1 PRD scope. Onboarding ladder, sign-in, sheets, scope manager, paywall/cancel, search, photo viewer, empty/failure/skeleton states, conflict resolution all in. Remaining gaps: notification/widget mockups, allowlist editor, pinch-zoom photo viewer. Design is unblocked for iOS implementation.
+> **Design status (2026-05-09 refresh #2):** prototype now realizes ~95% of V1 PRD scope. Closed since last check: pinch-zoom photo viewer, conflict-resolution success state, allowlist editor (Insights "+ Teach a new preference"). Only gap remaining: notification/Live Activity/widget mockups (these can be done directly in Figma — OS chrome is awkward in Lovable). Design is fully unblocked for V1 iOS implementation.
 
 #### Architectural
 - [ ] **Commit 1** — Scaffold `wonder/mafia-core-rust/` workspace; port `next_state` to Rust + napi-rs binding (per ADR-0002)
