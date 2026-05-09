@@ -96,6 +96,8 @@ The 12-item checklist in `docs/LOCAL-TESTING.md` is the human-verifiable gate. R
 > **Architecture decision:** see `docs/adr/ADR-0002-rust-core-and-v1-architecture.md` for repo layout, port order, and the first three concrete commits.
 >
 > **Design source:** see `docs/DESIGN.md` for the design language, IA, copy library, and PRD↔prototype mapping. Prototype lives in `vault-view/` (gitignored, cloned from `github.com/prerna2896/vault-view`).
+>
+> **Design status (2026-05-09):** prototype now realizes ~80% of V1 PRD scope. Onboarding ladder, sign-in, sheets, scope manager, paywall/cancel, search, photo viewer, empty/failure/skeleton states, conflict resolution all in. Remaining gaps: notification/widget mockups, allowlist editor, pinch-zoom photo viewer. Design is unblocked for iOS implementation.
 
 #### Architectural
 - [ ] **Commit 1** — Scaffold `wonder/mafia-core-rust/` workspace; port `next_state` to Rust + napi-rs binding (per ADR-0002)

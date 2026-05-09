@@ -111,15 +111,43 @@ The prototype installs the full shadcn surface (`vault-view/src/components/ui/`)
 
 ### 4.2 Mafia-specific components (`vault-view/src/components/mafia/`)
 
-| Component | What it does | iOS port priority |
-|---|---|---|
-| `MafiaApp` | Bottom-tab nav shell with floating frosted bar | High — exact pattern works in SwiftUI `TabView` with custom modifier |
-| `PhoneFrame` | Marketing wrapper (dynamic island, status bar). | Skip — was for the Lovable preview |
-| `VibeProvider` + `VibeToggle` | Calm/playful brand toggle | High — see §2 above |
-| `icons.tsx` | 6 custom-stroked icons (Home, Surfaces, Vault, Insights, Settings, ChevronRight, Sparkle, Refresh, Plus) + an SVG `Dot` | Medium — most should map to SF Symbols; Vault icon is custom and worth keeping |
-| `data.ts` | Mock data: surfaces, vault items, top senders, photo URLs | Reference only — V1 reads real data |
+Updated 2026-05-09 — prototype now ~2× the surface area as initial extraction.
 
-### 4.3 Repeating UI patterns (port these to iOS)
+| Component | Path | Purpose | iOS port priority |
+|---|---|---|---|
+| `MafiaApp` | `MafiaApp.tsx` | Tab nav shell + onboarded/signedIn gating via localStorage. Includes a "Replay onboarding" debug badge. | High |
+| `PhoneFrame` | `PhoneFrame.tsx` | Marketing wrapper. | Skip |
+| `VibeProvider` + `VibeToggle` | `vibe.tsx` | Calm/playful toggle (§2). | High |
+| `PhotoViewer` | `PhotoViewer.tsx` | Fullscreen photo, swipe-down dismiss, swipe L/R nav, keyboard arrows, 3-dot action menu (Restore / Move to Vault / Share). | High |
+| `icons.tsx` | — | Custom stroked icons + Dot. | Medium |
+| `data.ts` | — | Mock surfaces, vault items, senders. **`VaultItem` now has optional `snapshot` field** (`from`, `subject`, `date`) for upstream-purged restore. | Reference |
+| `Onboarding` | `onboarding/Onboarding.tsx` | 7-rung ladder per §5.0; localStorage-persisted; back-nav guards prevent step skipping. | High |
+| `SignIn` | `onboarding/SignIn.tsx` | Apple/Google CTAs + "Restore from another device" via faux QR + 6-digit OTP. | High |
+| **State framework** (`_state/`) | | | |
+| `EmptyStates` | `_state/EmptyStates.tsx` | `VaultEmpty` (with Learn-how sheet), `SurfacesEmpty`, `InsightsEmpty`, `HomeFirstScan` (animated scanning bar). | High |
+| `Failures` | `_state/Failures.tsx` | `SnapshotSheet` (upstream-purged), `ReconnectSheet` (sync lost), `ScopeSheet` (insufficient permissions). | High |
+| `Shimmer` | `_state/Shimmer.tsx` | `Shimmer` + `ShimmerCard` skeleton primitives. | Medium |
+| `ScopeManager` | `_state/ScopeManager.tsx` | Per-surface scope sheet — Read/Modify/Purge toggles, album-skip chips, danger zone (disconnect). | High |
+| `demo.ts` | `_state/demo.ts` | `useEmptyDemo` flag + `useSkeleton(ms)` hook for prototype demos. | Skip |
+| **Sheet framework** (`_sheets/`) | | | |
+| `Sheets` | `_sheets/Sheets.tsx` | `SheetShell` (bottom-sheet primitive), `ConfirmSheet`, `PaywallSheet`, `CancelSubscriptionSheet`, `EmailPreviewSheet`, `FeedbackSheet`, `WhyVaultedSheet`, `ItemContextMenu`, `useLongPress` hook. | High |
+| `SearchVault` | `_sheets/SearchVault.tsx` | Full-screen search overlay; recent chips; cross-surface result rows with inline restore. | High |
+| `SurfaceDetail` | `_sheets/SurfaceDetail.tsx` | Per-surface drill-down — storage breakdown bar (Used / Vaulted / Headroom), top senders/folders, last-30d activity. | Medium |
+| `ConflictResolution` | `_sheets/ConflictResolution.tsx` | Cross-surface duplicate groups; pick canonical surface per group. | Medium |
+| `ConnectionCeremony` | `_sheets/ConnectionCeremony.tsx` | 4-step add-a-new-surface flow that mirrors onboarding rungs 3–6 contextually. | Medium |
+
+### 4.3 Sheet system (added 2026-05-09)
+
+The prototype now uses **bottom sheets as the primary interaction layer** for non-screen-level UI. Pattern:
+
+- `SheetShell` (in both `_sheets/Sheets.tsx` and `_state/Failures.tsx`, slightly duplicated) — fixed overlay, semi-opaque backdrop with backdrop-blur, max-height 88-90%, top drag handle, paper background, rounded-t-[24px].
+- `ConfirmSheet` — generic destructive confirmation primitive. Two-button row, clay tone for destructive.
+- Sheets stack: paywall, cancel, email preview, feedback, why-vaulted, scope manager, snapshot (upstream-purged), reconnect, scope grant.
+- `useLongPress` hook + `ItemContextMenu` — 450ms long-press → contextual menu at touch coordinates. Fallback to right-click contextmenu event.
+
+For iOS port: SwiftUI `.sheet(isPresented:)` with `.presentationDetents([.medium, .large])`. The "drag handle on top" + "rounded-t-24" pattern is exactly Apple's bottom-sheet default.
+
+### 4.4 Repeating UI patterns (port these to iOS)
 
 **Card** — white, rounded-[20px], ring-1 ring-black/4%, soft shadow.
 **SectionLabel** — uppercase eyebrow with amber dot prefix, `tracking-[0.14em] text-[10px]`.
@@ -219,25 +247,32 @@ The third layer is the PRD §3.2 pattern-learning surface — proves the system 
 
 ## 9. PRD feature mapping
 
+Updated 2026-05-09. Cross-checked against `vault-view/` HEAD `75ca821`.
+
 | PRD section | In prototype | Status |
 |---|---|---|
-| §5.0 Onboarding ladder | ❌ | Needs design + build for V1 |
-| §5.0a Aha moment | ✅ partial | BurstDetail is the photo aha; senders headline is the email aha. Onboarding aha screen still needed. |
-| §5.1 Connect (sources) | ✅ | Surfaces tab; connection health dots |
-| §5.2 Discover | ✅ partial | Discoveries horizontal scroll on Home shows the pattern. Full discover surface (per-source scan results) not yet drawn. |
-| §5.3 Decide / rules | ❌ | Allowlist learning shown back ("we learned…") but no rule-creation UI. V1 stretch goal. |
-| §5.4 Vault | ✅ fully | Top-level tab; first-class browse + restore + bundle review |
-| §5.5 Reflect / Insights | ✅ fully | Insights tab; wrapped cards; learning panel |
-| §5.6 Nudges | ✅ partial | Three archetypes shown in invitation card. System triggers (charging-idle / storage-full / burst-detect) need real implementation. |
+| §5.0 Onboarding ladder | ✅ fully | 7-step `Onboarding.tsx` matches PRD spec exactly; localStorage-persisted; replay debug badge. |
+| §5.0a Aha moment | ✅ fully | Onboarding step 6 + Home Discoveries + BurstDetail. Three angles realized. |
+| §5.1 Connect (sources) | ✅ | Surfaces tab + ConnectionCeremony 4-step add flow + ScopeManager per-surface sheet. |
+| §5.2 Discover | ✅ | Home Discoveries scroll + SendersDetail + BurstDetail. SearchVault adds cross-surface lookup. |
+| §5.3 Decide / rules | ⚠️ partial | Bundle Review (Vault, SendersDetail) lets users select which items to act on. WhyVaultedSheet shows rule provenance. **Allowlist editor still missing.** |
+| §5.4 Vault | ✅ fully | First-class tab; Review with Swipe/Grid; long-press → ItemContextMenu (Restore / Why / Find similar / Share / Permanent purge). |
+| §5.5 Reflect / Insights | ✅ fully | Wrapped-style cards + "this week we learned" panel. |
+| §5.6 Nudges | ⚠️ partial | Three-archetype invitation card on Home ✅. **Notification / Live Activity / widget mockups still missing.** |
 | §5.7 Agent surface (MCP) | n/a | UI prototype scope; covered by Mafia |
+| §6.2 Read-only-first | ✅ | Onboarding step 3 pre-prompt + step 7 explicit grant; ScopeManager exposes ongoing toggle. |
+| §10 Account / sign-in | ✅ | Apple + Google + Restore-from-device. |
+| §12 Monetization (anti-dark-pattern promises) | ✅ | PaywallSheet + CancelSubscriptionSheet + EmailPreviewSheet — all four promises are visualized. |
 
-Two PRD must-fix UX findings already realized:
-- **MF-1** — Vault as a felt place ✅
-- **MF-4** — investment + variable reward instead of streaks ✅
-
-Two still to design:
-- **MF-2** — onboarding ladder
-- **MF-3** — first-session aha screen (separate from the burst comparison)
+UX-expert findings status:
+- **MF-1** Vault as a felt place ✅
+- **MF-2** Onboarding ladder ✅
+- **MF-3** First-session aha ✅ (onboarding step 6 + BurstDetail + SendersDetail)
+- **MF-4** Investment over streaks ✅
+- **SF-1** Three nudge archetypes ✅ (Spark/Facilitator/JIT cycling on Home)
+- **SF-3** Vault top-level tab + weekly purge banner ✅
+- **SF-4** Testable monetization commitments ✅ (PaywallSheet copy)
+- **SF-6** First false-positive UX ✅ (Bundle Review, ItemContextMenu, WhyVaultedSheet)
 
 ---
 
@@ -254,20 +289,17 @@ These are *not* in the PRD verbatim but emerged in the prototype. Worth keeping 
 
 ---
 
-## 11. What's missing (build for V1)
+## 11. What's still missing (build for V1)
 
-Order roughly by user-journey priority:
+After the 2026-05-09 prototype refresh, the remaining gaps are narrow:
 
-1. **Onboarding flow** — the 7-rung ladder per PRD §5.0
-2. **First-session aha screen** — distinct from the burst comparison; this is the moment-of-value before any write scope is asked
-3. **Permission pre-prompts** — for each source connection, the in-app priming screen (per PRD §5.0)
-4. **Empty states** for every screen (Vault empty, Surfaces empty, Insights empty)
-5. **Failure states** — what does it look like when restore fails because Gmail upstream is gone?
-6. **Real photo viewer** — current prototype only shows thumbnails; tap-to-fullscreen with pan/zoom needed
-7. **Account / OAuth flows** — sign in, scope grant, account switcher
-8. **Search** — global search bar; surfaces in Vault, Insights ("find that boarding pass", "where did I keep that recipe screenshot")
-9. **Pull-to-refresh** on all list surfaces
-10. **Loading / skeleton states** — current prototype is fully loaded; need shimmer skeletons for real network
+1. **Notification / Live Activity / widget mockups** — Tier 2 #7 in `docs/DESIGN-PROMPTS.md`. The system-level surfaces of PRD §5.6 nudges aren't drawn yet.
+2. **Allowlist editor** — Insights shows learned preferences in the Wrapped card and "this week we learned" panel, but there's no editable chip/list. Tier 3 #12.
+3. **Pull-to-refresh** affordance on list surfaces — implementation-level, not really a design gap.
+4. **Real photo viewer pinch-zoom + pan** — `PhotoViewer.tsx` has swipe-nav and dismiss but doesn't show pinch-to-zoom UX. Confirm before iOS port whether the prototype design intends pinch-zoom or fitted-viewing only.
+5. **Conflict resolution result state** — `ConflictResolution.tsx` lets user pick canonical, but the post-pick "you've resolved 3 of N" state isn't drawn.
+
+That's it. **The remaining PRD §5 surface area is design-complete enough to start V1 iOS work.** The Tier 1 ship-blockers from the previous round are all closed.
 
 ---
 
