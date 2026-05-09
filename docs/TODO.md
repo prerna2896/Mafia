@@ -94,6 +94,8 @@ The 12-item checklist in `docs/LOCAL-TESTING.md` is the human-verifiable gate. R
 ### V1 scope (target months 3–9)
 
 > **Architecture decision:** see `docs/adr/ADR-0002-rust-core-and-v1-architecture.md` for repo layout, port order, and the first three concrete commits.
+>
+> **Design source:** see `docs/DESIGN.md` for the design language, IA, copy library, and PRD↔prototype mapping. Prototype lives in `vault-view/` (gitignored, cloned from `github.com/prerna2896/vault-view`).
 
 #### Architectural
 - [ ] **Commit 1** — Scaffold `wonder/mafia-core-rust/` workspace; port `next_state` to Rust + napi-rs binding (per ADR-0002)

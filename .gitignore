@@ -13,3 +13,8 @@ client_secret*.json
 coverage/
 evals/runs/
 .DS_Store
+
+# Lovable prototype — kept locally for design reference, not part of Mafia
+vault-view/
+prototype/
+mafia-prototype/
