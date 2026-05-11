@@ -12,10 +12,9 @@
 //    surfaces a "+ Teach a new preference" inline form. State is local
 //    (`@State`); the real allowlist will live in the Rust core (ADR-0002).
 //
-//  Style + structure follow `HomeView.swift`. The Confirm sheet for
-//  "Forget this learning?" is omitted for V1; tapping × removes the chip
-//  immediately. TODO(confirm-sheet): wire to `ConfirmSheet` once the
-//  Sheets framework lands (DESIGN.md §4.3).
+//  Style + structure follow `HomeView.swift`. Tapping × on a chip surfaces
+//  a `ConfirmSheet` ("Forget this learning?") before the chip is actually
+//  removed — mirrors the prototype's `setForgetting` flow.
 //
 import SwiftUI
 import MafiaDesignSystem
@@ -31,6 +30,8 @@ public struct InsightsView: View {
     @State private var showAll: Bool = false
     @State private var adding: Bool = false
     @State private var draft: String = ""
+    /// Currently-pending forget confirmation. Non-nil drives the ConfirmSheet.
+    @State private var forgetting: String? = nil
 
     public init() {}
 
@@ -52,6 +53,26 @@ public struct InsightsView: View {
             .padding(.bottom, 128)
         }
         .background(MafiaColor.paper.ignoresSafeArea())
+        .sheet(
+            isPresented: Binding(
+                get: { forgetting != nil },
+                set: { presented in if !presented { forgetting = nil } }
+            )
+        ) {
+            ConfirmSheet(
+                title: "Forget this learning?",
+                body: "Mafia will go back to suggesting based on the original rules.",
+                confirmLabel: "Forget",
+                cancelLabel: "Keep",
+                tone: .clay,
+                onConfirm: {
+                    if let target = forgetting {
+                        learnings.removeAll { $0 == target }
+                    }
+                },
+                onCancel: { forgetting = nil }
+            )
+        }
     }
 
     // MARK: - Sections
@@ -260,8 +281,10 @@ public struct InsightsView: View {
         adding = false
     }
 
+    /// The × tap on a chip stages a confirm — the chip is only actually
+    /// removed once the user taps "Forget" in the ConfirmSheet.
     private func removeLearning(_ l: String) {
-        learnings.removeAll { $0 == l }
+        forgetting = l
     }
 }
 

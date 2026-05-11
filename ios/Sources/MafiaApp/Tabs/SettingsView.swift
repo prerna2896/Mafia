@@ -6,8 +6,11 @@
 //  Subscription, About, and footer. Sub-views (Row, SectionGroup, VibeToggle)
 //  are private structs below.
 //
-//  TODO(sheets): Paywall / cancel / email-preview / feedback bottom sheets
-//  from the prototype are not wired yet — chevron rows are tap-no-op for now.
+//  Sheet wiring (see `Sheets/Sheets.swift`):
+//    • Mafia Plus row             → PaywallSheet
+//    • Cancel subscription row    → CancelSubscriptionSheet
+//    • Subscription emails preview→ EmailPreviewSheet
+//    • Help & feedback row        → FeedbackSheet
 //
 import SwiftUI
 import MafiaDesignSystem
@@ -15,6 +18,12 @@ import MafiaDesignSystem
 public struct SettingsView: View {
     @AppStorage("mafia.vibe") private var vibeRaw: String = Vibe.calm.rawValue
     @State private var retentionDays: Double = 30
+
+    // Sheet presentation flags — one per sheet wired below.
+    @State private var showPaywall: Bool = false
+    @State private var showCancel: Bool = false
+    @State private var showEmailPreview: Bool = false
+    @State private var showFeedback: Bool = false
 
     public init() {}
 
@@ -59,11 +68,18 @@ public struct SettingsView: View {
                         title: "Mafia Plus",
                         subtitle: "$4 / month · renews May 22",
                         pill: .init(label: "Active", tone: .amber))
+                        .onTapGesture { showPaywall = true }
+                    Divider().background(MafiaColor.ring)
+                    SettingsRow(
+                        title: "Subscription emails preview",
+                        subtitle: "See what we'll send the day before any charge.")
+                        .onTapGesture { showEmailPreview = true }
                     Divider().background(MafiaColor.ring)
                     SettingsRow(
                         title: "Cancel subscription",
                         subtitle: "Top-level. Always one tap away.",
                         titleColor: MafiaColor.clay)
+                        .onTapGesture { showCancel = true }
                 }
                 .padding(.top, 8)
 
@@ -74,6 +90,7 @@ public struct SettingsView: View {
                     SettingsRow(title: "What's new")
                     Divider().background(MafiaColor.ring)
                     SettingsRow(title: "Help & feedback")
+                        .onTapGesture { showFeedback = true }
                 }
                 .padding(.top, 8)
 
@@ -87,6 +104,30 @@ public struct SettingsView: View {
             .padding(.bottom, 128)
         }
         .background(MafiaColor.paper.ignoresSafeArea())
+        .sheet(isPresented: $showPaywall) {
+            PaywallSheet(
+                reason: nil,
+                onStart: { /* TODO(actions): trigger StoreKit trial start. */ },
+                onClose: { showPaywall = false }
+            )
+        }
+        .sheet(isPresented: $showCancel) {
+            CancelSubscriptionSheet(
+                onConfirmCancel: {
+                    // TODO(actions): wire real cancel flow (V1+); dismiss only.
+                },
+                onClose: { showCancel = false }
+            )
+        }
+        .sheet(isPresented: $showEmailPreview) {
+            EmailPreviewSheet(onClose: { showEmailPreview = false })
+        }
+        .sheet(isPresented: $showFeedback) {
+            FeedbackSheet(
+                onSend: { _ in /* TODO(actions): post feedback payload. */ },
+                onClose: { showFeedback = false }
+            )
+        }
     }
 
     // MARK: - Header

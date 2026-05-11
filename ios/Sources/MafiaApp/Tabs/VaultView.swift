@@ -15,8 +15,11 @@
 //  - Visual Swipe / Grid view-mode toggle inside Bundle Review is skipped.
 //    Only the list-with-checkboxes mode is implemented; the swipe mode needs
 //    real gesture work which is out of scope for this port.
-//  - Long-press → ItemContextMenu, Why-vaulted sheet, Snapshot sheet,
-//    SearchVault overlay, and toast feedback are deferred to a follow-up.
+//  - Snapshot sheet, SearchVault overlay, and toast feedback are deferred.
+//
+//  Sheet wiring (see `Sheets/Sheets.swift`):
+//    • Long-press row             → mafiaContextMenu (Restore / Why / …)
+//    • "Why is this in Vault?"    → WhyVaultedSheet (per-row title + source)
 //
 import SwiftUI
 import MafiaDesignSystem
@@ -138,6 +141,8 @@ public struct VaultView: View {
     @State private var restored: Set<String> = []
     @State private var reviewingID: String? = nil
     @State private var selectedSubs: Set<String> = []
+    /// Non-nil drives the WhyVaultedSheet for the matching row.
+    @State private var whyItem: VaultItem? = nil
 
     public init() {}
 
@@ -158,6 +163,13 @@ public struct VaultView: View {
             .padding(.bottom, 128)
         }
         .background(MafiaColor.paper.ignoresSafeArea())
+        .sheet(item: $whyItem) { item in
+            WhyVaultedSheet(
+                title: item.title,
+                source: item.source,
+                onClose: { whyItem = nil }
+            )
+        }
     }
 
     private var header: some View {
@@ -258,6 +270,11 @@ public struct VaultView: View {
                                 onToggleSub: { toggleSub($0) },
                                 onRestoreSelected: { restoreSelected(for: item) }
                             )
+                            // canPurge: gating on "past N days" is not wired
+                            // yet; keep false for now per design notes.
+                            .mafiaContextMenu(canPurge: false) { action in
+                                handleContextAction(action, for: item)
+                            }
                         }
                     }
                     .background(
@@ -300,6 +317,27 @@ public struct VaultView: View {
         restored.insert(item.id)
         reviewingID = nil
         selectedSubs = []
+    }
+
+    /// Dispatches `mafiaContextMenu` actions per row.
+    /// Restore is wired to the existing restore flow; `.why` opens the
+    /// WhyVaultedSheet. Other actions are TODO(actions) no-ops.
+    private func handleContextAction(_ action: ContextAction, for item: VaultItem) {
+        switch action {
+        case .restore:
+            restored.insert(item.id)
+        case .why:
+            whyItem = item
+        case .similar:
+            // TODO(actions): present "find similar" surface.
+            break
+        case .share:
+            // TODO(actions): wire iOS share sheet (UIActivityViewController).
+            break
+        case .purge:
+            // TODO(actions): per-day-gated purge confirmation flow.
+            break
+        }
     }
 }
 
