@@ -137,3 +137,19 @@ await server.connect(transport);
 void startupReconcile();
 
 console.error('Mafia MCP server running (v0.2.0 — quarantine + reflog)');
+
+// ── Shutdown ──────────────────────────────────────────────────────────────────
+// MCP SDK's StdioServerTransport doesn't exit on its own when the host closes
+// the stdio pipe; without these hooks the process becomes an orphan zombie
+// (idle, holding an open SQLite fd) and accumulates one per dirty host exit.
+let shuttingDown = false;
+const shutdown = (sig: string) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.error(`Mafia exiting (${sig})`);
+  try { getDb().close(); } catch {}
+  process.exit(0);
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.stdin.on('end', () => shutdown('stdin-EOF'));
