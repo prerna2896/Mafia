@@ -1,227 +1,81 @@
-# Mafia — MCP Server (V0)
+# Mafia — monorepo
 
-Ambient inbox cleanup that lives inside your AI workflow. Quarantine + reflog + restore baked in — nothing destructive without a 30-day undo path.
+Mafia is a cross-surface personal data cleanup product. This is the monorepo: everything Mafia-related ships from here.
 
-> **V0 status:** quarantine state machine, append-only hash-chained reflog, transactional outbox, restore tool, vault listing, retry/timeout, refresh-token re-auth UX — all shipped. See `docs/LOCAL-TESTING.md` to exercise it on your real Gmail.
->
-> **Project tracking:** `docs/TODO.md` is the living source of truth for what's done / in flight / scoped to V1+. **PRD:** `PRD.md`. **Architecture:** `docs/adr/`.
+## Layout
 
-## Setup (15 minutes)
+```
+Mafia/
+├── mcp/                  Node MCP server — the V0 email pillar (Gmail-only)
+├── core-rust/            Shared Rust core — state machine, reflog, snapshot
+│   ├── core/             Pure library
+│   └── ffi-node/         napi-rs Node binding (consumed by mcp/ via file:)
+├── ios/                  Swift Package skeleton — V1 mobile app foundation
+├── docs/                 Product docs — PRD, ADRs, DESIGN, TODO, EVALS
+├── vault-view/           Lovable design prototype (gitignored — clone from
+│                         github.com/prerna2896/vault-view for design ref)
+└── PRD.md                Product Requirements Document (single source of truth
+                          for the why)
+```
 
-### 1. Install dependencies
+## What lives where
+
+| Layer | Subdir | Status | Tests |
+|---|---|---|---|
+| Node MCP server (V0) | `mcp/` | shipped | 98 ✅ on both backends |
+| Rust core trust primitives (V1) | `core-rust/core/` | state machine + reflog ported | 32 ✅ |
+| Node FFI binding (V1) | `core-rust/ffi-node/` | napi-rs cdylib | tested via mcp's matrix |
+| iOS app scaffold (V1) | `ios/` | Swift Package skeleton, design system + tab shell + onboarding stub | 5 ✅ |
+| Design prototype | `vault-view/` | gitignored | n/a |
+
+## Quick start by sub-project
 
 ```bash
-npm install
+# MCP server (V0 — running today)
+cd mcp && npm install && npm run auth && npm test
+
+# Rust core (V1 — both natively + via Node binding)
+cd core-rust && cargo test
+
+# iOS skeleton (V1 — Swift Package, real Xcode app comes later)
+cd ios && swift build && swift test
+
+# Run mcp tests against the Rust backend instead of TS (verifies FFI parity)
+cd mcp && npm run test:rust         # uses MAFIA_CORE_BACKEND=rust
+cd mcp && npm run test:matrix       # both backends in sequence
+
+# Mock evals → HTML report
+cd mcp && npm run eval:mock
+open evals/runs/report.html
 ```
 
-### 2. Google Cloud setup
+See each sub-project's own README for deeper details.
 
-1. Go to [console.cloud.google.com](https://console.cloud.google.com)
-2. Create a new project (or use existing)
-3. Enable **Gmail API**: APIs & Services → Enable APIs → search "Gmail API"
-4. Create OAuth credentials: APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID
-   - Application type: **Web application**
-   - Authorized redirect URIs: `http://localhost:3333/oauth/callback`
-5. Copy your **Client ID** and **Client Secret**
+## Docs
 
-### 3. Configure environment
+- **`PRD.md`** — product reqs (why we're building this and what the V0/V1+ shape is)
+- **`docs/TODO.md`** — living tracker: V0 ✅ / V1 in flight / V2-V4 scope
+- **`docs/DESIGN.md`** — design system extracted from the Lovable prototype, source of truth for V1 iOS
+- **`docs/LOCAL-TESTING.md`** — V0 acceptance walkthrough on real Gmail
+- **`docs/EVALS.md`** — scenario-based eval framework usage
+- **`docs/adr/`** — architecture decisions:
+  - `ADR-0001` — V0 quarantine + reflog state machine
+  - `ADR-0002` — V1 Rust core layout + iOS architecture
 
-```bash
-cp .env.example .env
-```
+## V0 vs V1
 
-Edit `.env` with your values:
-```
-GOOGLE_CLIENT_ID=your_client_id
-GOOGLE_CLIENT_SECRET=your_client_secret
-ANTHROPIC_API_KEY=your_key
-```
+**V0 (this repo, shipped):** Node MCP server. Quarantine + reflog + restore on Gmail. 7 tools, hash-chained audit log, OAuth resilience, eval framework, HTML reporter. Runs in Claude Desktop / Claude Code / any MCP host. See `mcp/README.md`.
 
-### 4. Authenticate with Gmail
+**V1 (in flight):** Swift iOS app on top of a shared Rust core that the MCP also consumes via FFI. 3 architectural commits landed (per ADR-0002):
+1. State machine ported to Rust + napi-rs binding
+2. Mafia consumes the binding behind `MAFIA_CORE_BACKEND=rust` — 98 tests pass on both backends
+3. Reflog (`verify_chain` + `canonical_json`) ported, with TS↔Rust cross-language consistency tests
 
-```bash
-npm run auth
-```
+Remaining V1 work tracked in `docs/TODO.md`.
 
-This opens your browser, asks you to log in with Google, and saves your tokens locally. Run this once — tokens auto-refresh after that.
+## Conventions
 
-### 5. Add to Claude Desktop
-
-Edit your Claude Desktop config file:
-
-**macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`  
-**Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "mafia": {
-      "command": "node",
-      "args": ["/absolute/path/to/mafia/dist/index.js"],
-      "env": {
-        "GOOGLE_CLIENT_ID": "your_client_id",
-        "GOOGLE_CLIENT_SECRET": "your_client_secret",
-        "ANTHROPIC_API_KEY": "your_key"
-      }
-    }
-  }
-}
-```
-
-Or use `tsx` for development (no build step needed):
-```json
-{
-  "mcpServers": {
-    "mafia": {
-      "command": "npx",
-      "args": ["tsx", "/absolute/path/to/mafia/src/index.ts"],
-      "env": {
-        "GOOGLE_CLIENT_ID": "your_client_id",
-        "GOOGLE_CLIENT_SECRET": "your_client_secret",
-        "ANTHROPIC_API_KEY": "your_key"
-      }
-    }
-  }
-}
-```
-
-### 6. Restart Claude Desktop
-
-The Mafia tools will now appear in Claude Desktop.
-
----
-
-## Usage
-
-Once connected, just talk to Claude naturally:
-
-```
-"fetch 10 emails for triage"
-"summarize email [id]"
-"delete that one"
-"keep this one"
-"commit the session"
-"what's my junk score?"
-```
-
-### Full cleanup flow
-
-```
-You: fetch 15 promotional emails
-Claude: [calls fetch_emails] Here are 15 emails...
-
-You: summarize the first one
-Claude: [calls summarize_email] Newsletter from Substack — weekly digest, recommend delete
-
-You: delete it, keep going
-Claude: [calls act_on_email] Queued for deletion. Next email...
-
-You: [after deciding all emails]
-You: commit
-Claude: [calls commit_session] ✅ Deleted 11, archived 3, kept 1. ~1.0MB freed.
-```
-
-### Quick session (fill-time)
-
-```
-You: while that image generates, show me 3 emails to triage
-Claude: [fetches + summarizes 3 emails, waits for your decisions]
-```
-
----
-
-## Available Tools
-
-| Tool | What it does |
-|---|---|
-| `fetch_emails` | Pull emails from Gmail by label/age (read-only) |
-| `summarize_email` | AI summary + recommended action (keep/archive/delete) |
-| `act_on_email` | Flag one email — written to local state machine, no Gmail call |
-| `commit_session` | Apply flagged actions: snapshot + Gmail call + state transition. Items go to **Vault**, recoverable for 30 days |
-| `list_vault` | Browse vault items with sender, subject, days-until-purge, action_id |
-| `restore` | Pull one or more items out of vault back to inbox |
-| `get_session_stats` | Investment metrics: total vaulted, restored, purged; restore rate; reflog entry count |
-
----
-
-## Project Structure
-
-```
-mafia/
-├── src/
-│   ├── index.ts                         # MCP server entry; reconcile + purge on startup
-│   ├── db/
-│   │   ├── index.ts                     # SQLite open + user/session/stats helpers
-│   │   ├── schema.sql                   # Canonical DDL (mirrored in migration)
-│   │   └── migrations/
-│   │       └── 001_quarantine_reflog.ts
-│   ├── quarantine/
-│   │   ├── types.ts                     # State / Intent / Transition types
-│   │   ├── state-machine.ts             # Pure transition validation
-│   │   ├── reflog.ts                    # Append-only hash-chained writer + verifier
-│   │   ├── snapshot.ts                  # Hybrid metadata-vs-blob storage
-│   │   ├── outbox.ts                    # Transactional outbox + reconcile
-│   │   └── purger.ts                    # 30-day sweep
-│   ├── gmail/
-│   │   ├── client.ts                    # Gmail OAuth + low-level fetch
-│   │   └── adapter.ts                   # Narrow GmailAdapter interface (testable)
-│   ├── lib/summarize.ts                 # Claude Haiku summarization
-│   ├── tools/                           # MCP tool handlers (one file per tool)
-│   └── scripts/auth.ts                  # One-time OAuth setup
-├── tests/
-│   ├── helpers.ts                       # Test DB + MockGmailAdapter
-│   ├── state-machine.test.ts            # 17 tests
-│   ├── reflog.test.ts                   # Hash chain + INSERT-only triggers
-│   ├── snapshot.test.ts                 # Hybrid storage + dedup
-│   ├── outbox.test.ts                   # Flag/commit/restore/purge/reconcile
-│   ├── purger.test.ts
-│   └── integration.test.ts              # 10-email round-trip end-to-end
-├── docs/
-│   ├── adr/ADR-0001-quarantine-reflog-state-machine.md
-│   ├── migration-phase0.md
-│   └── LOCAL-TESTING.md                 # User-facing V0 testing guide
-├── PRD.md
-├── data/                                # SQLite DB lives here (gitignored)
-└── package.json
-```
-
----
-
-## Tests
-
-```bash
-npm test               # vitest run
-npm run test:watch     # vitest interactive
-npm run test:coverage  # full coverage report
-npm run typecheck      # tsc --noEmit
-```
-
-V0 ships 48 passing tests across 6 files covering state machine, reflog chain, INSERT-only enforcement, snapshot storage, outbox crash recovery, idempotence, and an end-to-end 10-email round-trip via mocked Gmail.
-
-## Evals
-
-Scenario-based input/output framework — declarative tool sequences that log every input/output pair to JSONL for offline review. See `docs/EVALS.md`.
-
-```bash
-npm run eval:mock    # safe: mocked Gmail, isolated DB
-npm run eval:live    # real Gmail, your real DB (caution)
-npm run eval evals/scenarios/01-basic-triage.json   # one scenario
-```
-
-Logs land in `evals/runs/<scenario>-<timestamp>.jsonl`. Inspect with `jq`:
-
-```bash
-cat evals/runs/*.jsonl | jq 'select(.ok == false)'   # everything that errored
-```
-
-## Roadmap
-
-Mafia is now Phase 0 of a larger cross-surface cleanup product. See `PRD.md` §9 for the full roadmap.
-
-- **Phase 0 — Mafia MCP (this repo)** ✅ Quarantine, reflog, restore, vault listing on Gmail.
-- **Phase 1 — iOS Photos MVP.** Introduces a Rust core that this repo migrates to (via Node FFI). Mafia keeps shipping as the email surface.
-- **Phase 2 — Smart + cross-cloud.** Bandit nudges, NL retrieval, Drive + Dropbox.
-- **Phase 3 — Email + documents in mobile app.** Reuses Mafia's hardened Gmail logic.
-- **Phase 4 — Restore tier + agent polish.** Time-machine restore, App Intents, family plan.
-
-Reconciliation with the original Mafia M1–M5 milestones is in `PRD.md` §9.
+- Each sub-project keeps its own `README.md` for setup specifics. This top-level README is just a map.
+- `docs/` is shared across all sub-projects. Use absolute repo-relative paths (`docs/TODO.md`) not hard-coded `/Users/...` paths.
+- The `vault-view/` directory holds the Lovable design prototype clone. It's gitignored. Re-clone with `git clone git@github.com:prerna2896/vault-view.git vault-view` when you need to view designs.
+- Local file: dependencies inside the monorepo use sibling paths — e.g. `mcp/`'s `@mafia/core-node` resolves to `core-rust/ffi-node`.
