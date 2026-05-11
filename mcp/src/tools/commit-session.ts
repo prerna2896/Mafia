@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { getSession, getFirstUser, getDb, updateStats } from '../db/index.js';
 import { makeGmailAdapter } from '../gmail/adapter.js';
-import { commitAction, listFlagged, reconcileInFlight } from '../quarantine/outbox.js';
+import { commitAction, commitArchiveBatch, listFlagged, reconcileInFlight } from '../quarantine/outbox.js';
 import { runPurger } from '../quarantine/purger.js';
 import { getActiveSession } from './act-on-email.js';
 import type { EmailAction } from '../quarantine/types.js';
@@ -58,7 +58,23 @@ export async function commitSessionTool(input: CommitSessionInput) {
     failed: [],
   };
 
-  for (const action of flagged) {
+  // Split by intent so we can route archive through the batched path (one
+  // Gmail call per ≤500 ids) while keep + delete stay on the per-row commit.
+  // - keep: no upstream call, kept as a tight loop for parity with old behavior.
+  // - delete: no Gmail batch endpoint exists for trash, so per-row.
+  // - archive: chunked through commitArchiveBatch — one batchModify per chunk.
+  const keepFlagged: typeof flagged = [];
+  const archiveFlagged: typeof flagged = [];
+  const deleteFlagged: typeof flagged = [];
+  for (const a of flagged) {
+    if (a.intent === 'keep') keepFlagged.push(a);
+    else if (a.intent === 'archive') archiveFlagged.push(a);
+    else deleteFlagged.push(a);
+  }
+
+  // Keep + delete: per-row through the existing commitAction (preserves the
+  // existing snapshot + state-machine path for delete-intent body capture).
+  for (const action of [...keepFlagged, ...deleteFlagged]) {
     try {
       const result = await commitAction(db, gmail, action.id);
       if (result.state === 'kept') results.kept.push(result);
@@ -66,6 +82,22 @@ export async function commitSessionTool(input: CommitSessionInput) {
       else if (result.state === 'failed') results.failed.push(result);
     } catch (err) {
       results.failed.push(action);
+    }
+  }
+
+  // Archive: chunk to 500 ids per batchModify. Headroom below Gmail's 1000-id
+  // cap so concurrent traffic + retries don't ever push a single call over.
+  const ARCHIVE_BATCH_CHUNK = 500;
+  for (let i = 0; i < archiveFlagged.length; i += ARCHIVE_BATCH_CHUNK) {
+    const chunk = archiveFlagged.slice(i, i + ARCHIVE_BATCH_CHUNK);
+    try {
+      const out = await commitArchiveBatch(db, gmail, chunk.map((a) => a.id));
+      results.quarantined.push(...out.quarantined);
+      results.failed.push(...out.failed);
+    } catch (err) {
+      // Whole-chunk failure (e.g. snapshot fetch threw before any per-row
+      // transition). Surface every action in this chunk as failed.
+      results.failed.push(...chunk);
     }
   }
 

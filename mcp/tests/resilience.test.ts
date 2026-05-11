@@ -6,13 +6,20 @@
 // These guard against future regressions even though the original symptoms
 // were "deferred" until they actually bit a user.
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   withRetry,
   withTimeout,
   withResilience,
+  withPacing,
   defaultIsRetriable,
   TimeoutError,
+  TokenBucket,
+  RateLimitedError,
+  setGmailRateLimiter,
+  resetGmailRateLimiter,
+  QUOTA_UNITS_PER_SEC,
+  BUCKET_CAPACITY,
 } from '../src/gmail/resilience.js';
 import { ReauthRequiredError } from '../src/gmail/client.js';
 
@@ -197,6 +204,148 @@ describe('resilience: withResilience composition', () => {
       withResilience(fn, { sleep: async () => {}, baseMs: 1 }),
     ).rejects.toThrow('insufficient permissions');
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── TokenBucket / pacing ──────────────────────────────────────────────────────
+
+describe('resilience: TokenBucket', () => {
+  it('allows immediate consumption up to capacity', async () => {
+    const b = new TokenBucket({ refillPerSec: 100, capacity: 50 });
+    // Capacity is 50; consume the whole bucket in one call.
+    await b.acquire(50);
+    expect(b.available).toBeLessThan(1); // basically empty
+  });
+
+  it('blocks until tokens refill', async () => {
+    // Simulated clock + sleep so the test is deterministic and fast.
+    let now = 0;
+    const sleeps: number[] = [];
+    const b = new TokenBucket({
+      refillPerSec: 100,
+      capacity: 10,
+      now: () => now,
+      sleep: async (ms) => { sleeps.push(ms); now += ms; },
+    });
+    // Drain the bucket.
+    await b.acquire(10);
+    // Next 5-token call must wait for ~50ms of refill (5 / 100 tokens/sec).
+    await b.acquire(5);
+    expect(sleeps.length).toBe(1);
+    expect(sleeps[0]).toBeGreaterThanOrEqual(50);
+    expect(sleeps[0]).toBeLessThan(60);
+  });
+
+  it('rejects with RateLimitedError if wait would exceed maxWaitMs', async () => {
+    let now = 0;
+    const b = new TokenBucket({
+      refillPerSec: 1, // glacial refill
+      capacity: 1,
+      maxWaitMs: 1000,
+      now: () => now,
+      sleep: async (ms) => { now += ms; },
+    });
+    await b.acquire(1); // drain
+    // Asking for 5 more at 1 token/sec = 5000ms wait > 1000ms cap.
+    await expect(b.acquire(5)).rejects.toThrow(RateLimitedError);
+  });
+
+  it('serialises concurrent acquires (no starvation)', async () => {
+    let now = 0;
+    const order: number[] = [];
+    const b = new TokenBucket({
+      refillPerSec: 100,
+      capacity: 10,
+      now: () => now,
+      sleep: async (ms) => { now += ms; },
+    });
+    // Three callers, total cost 30, bucket starts at 10 — each must wait its turn.
+    const p1 = b.acquire(10).then(() => order.push(1));
+    const p2 = b.acquire(10).then(() => order.push(2));
+    const p3 = b.acquire(10).then(() => order.push(3));
+    await Promise.all([p1, p2, p3]);
+    expect(order).toEqual([1, 2, 3]);
+  });
+
+  it('100 cost-5 acquires take >= simulated 2s under default rate', async () => {
+    // 100 × 5 = 500 tokens; refill rate 250/s would take 2s (after the
+    // initial 250-token capacity is exhausted). With our default 200/s rate
+    // and 200-capacity, the math is: first 200 tokens free, remaining 300 at
+    // 200/s = 1.5s. Total ~1.5s simulated.
+    let now = 0;
+    const b = new TokenBucket({
+      refillPerSec: QUOTA_UNITS_PER_SEC, // 200
+      capacity: BUCKET_CAPACITY,         // 200
+      now: () => now,
+      sleep: async (ms) => { now += ms; },
+    });
+    const start = now;
+    for (let i = 0; i < 100; i++) {
+      await b.acquire(5);
+    }
+    const elapsedSec = (now - start) / 1000;
+    // Lower bound: (500 - 200) / 200 = 1.5s. Upper bound: a generous 2.5s.
+    expect(elapsedSec).toBeGreaterThanOrEqual(1.5);
+    expect(elapsedSec).toBeLessThan(2.5);
+  });
+});
+
+describe('resilience: withPacing + withResilience pacing wiring', () => {
+  beforeEach(() => {
+    // Each test installs its own bucket so pacing is observable + fast.
+    resetGmailRateLimiter();
+  });
+  afterEach(() => {
+    resetGmailRateLimiter();
+  });
+
+  it('withPacing blocks via the module-level bucket', async () => {
+    let now = 0;
+    const sleeps: number[] = [];
+    const bucket = new TokenBucket({
+      refillPerSec: 100,
+      capacity: 5,
+      now: () => now,
+      sleep: async (ms) => { sleeps.push(ms); now += ms; },
+    });
+    setGmailRateLimiter(bucket);
+
+    await withPacing(5, async () => 'a'); // drains bucket, no wait
+    await withPacing(5, async () => 'b'); // must wait ~50ms
+
+    expect(sleeps.length).toBe(1);
+    expect(sleeps[0]).toBeGreaterThan(0);
+  });
+
+  it('withResilience honors cost option (acquires tokens before the call)', async () => {
+    let now = 0;
+    let waited = false;
+    const bucket = new TokenBucket({
+      refillPerSec: 100,
+      capacity: 5,
+      now: () => now,
+      sleep: async (ms) => { waited = true; now += ms; },
+    });
+    setGmailRateLimiter(bucket);
+
+    await withResilience(async () => 'ok', { cost: 5, timeoutMs: 1000 });
+    await withResilience(async () => 'ok2', { cost: 5, timeoutMs: 1000 });
+
+    expect(waited).toBe(true); // second call had to wait for refill
+  });
+
+  it('withResilience cost=0 disables pacing entirely', async () => {
+    let waited = false;
+    const bucket = new TokenBucket({
+      refillPerSec: 1,
+      capacity: 0,
+      now: () => 0,
+      sleep: async () => { waited = true; },
+    });
+    setGmailRateLimiter(bucket);
+    // Even with an empty bucket, cost=0 should not block.
+    await withResilience(async () => 'fast', { cost: 0, timeoutMs: 1000 });
+    expect(waited).toBe(false);
   });
 });
 

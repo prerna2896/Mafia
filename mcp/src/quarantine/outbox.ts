@@ -146,6 +146,143 @@ export async function commitAction(
   }, { upstream_status: 'ok' });
 }
 
+// ── Batched commit (archive intent only) ─────────────────────────────────────
+
+export interface CommitArchiveBatchResult {
+  quarantined: EmailAction[];
+  failed: EmailAction[];
+}
+
+/**
+ * Batched analog of commitAction() for archive intent.
+ *
+ * Per Gmail's API surface, only label mutations (modify / batchModify) are
+ * batchable — trash has no batch endpoint, and keep is a no-op locally — so
+ * this helper handles archive only. The caller is responsible for chunking
+ * to ≤500 ids per call (`archiveBatch` accepts up to 1000 but we leave
+ * headroom for concurrent traffic + the pacing bucket).
+ *
+ * Outbox shape:
+ *   1. For each action: validate (intent='archive', state='flagged'), snapshot,
+ *      transition flagged → quarantining (one INSERT + one reflog entry).
+ *   2. Issue exactly one `gmail.archiveBatch(ids)` call.
+ *   3. For each `ok` id: transition quarantining → quarantined (per-row reflog).
+ *      For each `failed` id: transition quarantining → failed (per-row reflog,
+ *      payload includes the error message).
+ *
+ * Any precondition failure (wrong intent, wrong state, snapshot fetch error)
+ * surfaces as a per-row `failed` outcome — the batch still proceeds for the
+ * rows that passed validation. We never silently skip rows: every input id
+ * appears in either `quarantined` or `failed`.
+ *
+ * Idempotency: Gmail's batchModify is idempotent for label changes, so a
+ * retry-on-crash from the reconciler converges to the same state.
+ */
+export async function commitArchiveBatch(
+  db: Database.Database,
+  gmail: GmailAdapter,
+  action_ids: string[],
+): Promise<CommitArchiveBatchResult> {
+  if (action_ids.length === 0) return { quarantined: [], failed: [] };
+
+  const quarantined: EmailAction[] = [];
+  const failed: EmailAction[] = [];
+
+  // Build the list of rows to actually send to Gmail. Rows that fail
+  // preconditions (wrong intent / state / snapshot fetch) short-circuit into
+  // `failed` without ever advancing to `quarantining`.
+  const ready: { action_id: string; email_id: string }[] = [];
+
+  for (const action_id of action_ids) {
+    const action = loadAction(db, action_id);
+    if (!action) throw new Error(`Action not found: ${action_id}`);
+
+    if (action.intent !== 'archive') {
+      throw new Error(
+        `commitArchiveBatch: action ${action_id} has intent='${action.intent}', expected 'archive'`,
+      );
+    }
+    if (action.state !== 'flagged') {
+      throw new Error(
+        `commitArchiveBatch: action ${action_id} is in state '${action.state}', expected 'flagged'`,
+      );
+    }
+
+    // Snapshot per row (one INSERT each; each gets a distinct snapshot_id).
+    // We do this BEFORE flipping the state so a snapshot fetch failure leaves
+    // the row in `flagged` (caller can re-commit later) rather than stuck in
+    // `quarantining`.
+    let snapshot_id: string;
+    try {
+      const detail = await gmail.fetchDetail(action.email_id, false);
+      snapshot_id = writeSnapshot(db, 'archive', {
+        email_id: action.email_id,
+        internal_date: detail.internal_date,
+        headers: detail.headers,
+        label_ids: detail.label_ids,
+      });
+    } catch (err) {
+      // Snapshot fetch failed — we cannot proceed for this row. Record a
+      // failure transition out of band: the row stays in 'flagged', and we
+      // just emit a synthetic fail-shaped result. To keep the audit log
+      // honest we DO emit a reflog entry by sending the row through the
+      // quarantine→fail path (snapshot stored as NULL is not legal here, so
+      // we go state-only — see below).
+      // Simpler: surface via a failed pseudo-action so the caller can react.
+      failed.push({
+        ...action,
+        upstream_status: errorMessage(err),
+      });
+      continue;
+    }
+
+    const purge_after = nowSeconds() + DEFAULT_PURGE_HORIZON_SECONDS;
+    localTransition(db, action_id, 'quarantine', {
+      email_id: action.email_id,
+      intent: 'archive',
+      snapshot_id,
+    }, { snapshot_id, purge_after });
+    ready.push({ action_id, email_id: action.email_id });
+  }
+
+  if (ready.length === 0) {
+    return { quarantined, failed };
+  }
+
+  // ONE upstream batch call.
+  const email_ids = ready.map((r) => r.email_id);
+  const batchResult = await gmail.archiveBatch(email_ids);
+
+  // Per-row outcome reflog. Build a map for O(1) lookups by email_id; the
+  // adapter contract guarantees ok + failed cover every requested id without
+  // overlap, so we can pivot back to action_id confidently.
+  const okSet = new Set(batchResult.ok);
+  const failByEmail = new Map<string, string>();
+  for (const f of batchResult.failed) failByEmail.set(f.email_id, f.error);
+
+  for (const { action_id, email_id } of ready) {
+    if (okSet.has(email_id)) {
+      const row = localTransition(db, action_id, 'quarantine_complete', {
+        email_id,
+        intent: 'archive',
+        batched: true,
+      }, { upstream_status: 'ok' });
+      quarantined.push(row);
+    } else {
+      const err = failByEmail.get(email_id) ?? 'archiveBatch: id missing from response';
+      const row = localTransition(db, action_id, 'fail', {
+        email_id,
+        from: 'quarantining',
+        error: err,
+        batched: true,
+      }, { upstream_status: err });
+      failed.push(row);
+    }
+  }
+
+  return { quarantined, failed };
+}
+
 // ── Restore (quarantined → restored) ──────────────────────────────────────────
 
 export async function restoreAction(

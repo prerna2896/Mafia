@@ -104,11 +104,152 @@ export async function withTimeout<T>(fn: () => Promise<T>, ms: number): Promise<
   }
 }
 
+// ── Token-bucket pacing ───────────────────────────────────────────────────────
+//
+// Gmail's per-user quota is ~250 quota-units per second. Stay well below that
+// so concurrent traffic (e.g. parallel batches, retries, the reconciler) never
+// pushes us into 429-throttling. The bucket refills continuously at
+// QUOTA_UNITS_PER_SEC and caps at BUCKET_CAPACITY tokens.
+
+/** Default refill rate in tokens (quota-units) per second. */
+export const QUOTA_UNITS_PER_SEC = 200;
+/** Default bucket capacity in tokens. */
+export const BUCKET_CAPACITY = 200;
+/** Hard cap on how long a single acquire() may block before rejecting. */
+const MAX_ACQUIRE_WAIT_MS = 10_000;
+
+export class RateLimitedError extends Error {
+  constructor(public readonly costRequested: number, public readonly waitMs: number) {
+    super(`Rate limiter could not satisfy cost=${costRequested} within ${waitMs}ms; would exceed Gmail per-user quota.`);
+    this.name = 'RateLimitedError';
+  }
+}
+
+export interface TokenBucketOptions {
+  /** Tokens added per second. Defaults to QUOTA_UNITS_PER_SEC. */
+  refillPerSec?: number;
+  /** Maximum tokens the bucket can hold. Defaults to BUCKET_CAPACITY. */
+  capacity?: number;
+  /** Max time a single acquire() will wait before rejecting. Defaults to 10s. */
+  maxWaitMs?: number;
+  /** now()-injection for tests. */
+  now?: () => number;
+  /** sleep()-injection for tests. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Continuous-refill token bucket. Single-process; the cap is wall-clock based
+ * (Date.now()) so concurrent callers naturally serialise by waiting their turn.
+ *
+ * acquire(cost) resolves once `cost` tokens are available. If the wait would
+ * exceed `maxWaitMs`, it rejects with RateLimitedError without consuming any
+ * tokens — caller can decide to back off or surface the error.
+ */
+export class TokenBucket {
+  private tokens: number;
+  private lastRefill: number;
+  private readonly refillPerSec: number;
+  private readonly capacity: number;
+  private readonly maxWaitMs: number;
+  private readonly now: () => number;
+  private readonly sleep: (ms: number) => Promise<void>;
+  /** Serialise acquire() so a long waiter doesn't get starved by a short one. */
+  private chain: Promise<void> = Promise.resolve();
+
+  constructor(opts: TokenBucketOptions = {}) {
+    this.refillPerSec = opts.refillPerSec ?? QUOTA_UNITS_PER_SEC;
+    this.capacity = opts.capacity ?? BUCKET_CAPACITY;
+    this.maxWaitMs = opts.maxWaitMs ?? MAX_ACQUIRE_WAIT_MS;
+    this.now = opts.now ?? Date.now;
+    this.sleep = opts.sleep ?? defaultSleep;
+    this.tokens = this.capacity;
+    this.lastRefill = this.now();
+  }
+
+  private refill() {
+    const t = this.now();
+    const dtSec = (t - this.lastRefill) / 1000;
+    if (dtSec <= 0) return;
+    this.tokens = Math.min(this.capacity, this.tokens + dtSec * this.refillPerSec);
+    this.lastRefill = t;
+  }
+
+  /**
+   * Acquire `cost` tokens, blocking until available. Rejects with
+   * RateLimitedError if the required wait exceeds maxWaitMs.
+   *
+   * A cost exceeding capacity is allowed (we wait for the bucket to fill all
+   * the way and then consume) but still bounded by maxWaitMs.
+   */
+  async acquire(cost: number): Promise<void> {
+    if (cost <= 0) return;
+    // Serialise: each acquire waits for the prior one to finish its wait
+    // before checking the bucket. Prevents the bucket from being raided by a
+    // newly-arriving cheap call while an earlier expensive call is sleeping.
+    const prev = this.chain;
+    let release: () => void;
+    this.chain = new Promise<void>((r) => { release = r; });
+    try {
+      await prev;
+      this.refill();
+      if (this.tokens >= cost) {
+        this.tokens -= cost;
+        return;
+      }
+      const deficit = cost - this.tokens;
+      const waitMs = Math.ceil((deficit / this.refillPerSec) * 1000);
+      if (waitMs > this.maxWaitMs) {
+        throw new RateLimitedError(cost, waitMs);
+      }
+      await this.sleep(waitMs);
+      this.refill();
+      // After waiting we should have enough; floor at 0 in case of jitter.
+      this.tokens = Math.max(0, this.tokens - cost);
+    } finally {
+      release!();
+    }
+  }
+
+  /** Test/diagnostic accessor. */
+  get available(): number {
+    this.refill();
+    return this.tokens;
+  }
+}
+
+// Module-level instance used by withResilience / withPacing. Tests can swap
+// via setGmailRateLimiter() and reset via resetGmailRateLimiter().
+let _bucket = new TokenBucket();
+
+export function getGmailRateLimiter(): TokenBucket {
+  return _bucket;
+}
+
+export function setGmailRateLimiter(bucket: TokenBucket) {
+  _bucket = bucket;
+}
+
+export function resetGmailRateLimiter() {
+  _bucket = new TokenBucket();
+}
+
+/**
+ * Acquire pacing tokens for `cost`, then run `fn`. Pure pacing — no retry,
+ * no timeout. Compose with withResilience if you want both.
+ */
+export async function withPacing<T>(cost: number, fn: () => Promise<T>): Promise<T> {
+  await _bucket.acquire(cost);
+  return fn();
+}
+
 // ── Composition: retry + timeout per attempt ──────────────────────────────────
 
 export interface ResilientOptions extends RetryOptions {
   /** Per-attempt timeout in ms. Default 15000. Set to 0 to disable. */
   timeoutMs?: number;
+  /** Token-bucket cost per attempt. Default 1. Set to 0 to disable pacing. */
+  cost?: number;
 }
 
 export const DEFAULT_RESILIENT: Required<Pick<ResilientOptions, 'timeoutMs'>> = {
@@ -117,13 +258,18 @@ export const DEFAULT_RESILIENT: Required<Pick<ResilientOptions, 'timeoutMs'>> = 
 
 /**
  * Wrap a function so each attempt is timeout-bounded AND the whole chain
- * retries on transient failures. Tests can override every knob.
+ * retries on transient failures. Each attempt also acquires `cost` tokens
+ * from the pacing bucket before firing. Tests can override every knob.
  */
 export function withResilience<T>(
   fn: () => Promise<T>,
   opts: ResilientOptions = {},
 ): Promise<T> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_RESILIENT.timeoutMs;
+  const cost = opts.cost ?? 1;
   const isRetriable = opts.isRetriable ?? ((err) => err instanceof TimeoutError || defaultIsRetriable(err));
-  return withRetry(() => withTimeout(fn, timeoutMs), { ...opts, isRetriable });
+  return withRetry(async () => {
+    if (cost > 0) await _bucket.acquire(cost);
+    return withTimeout(fn, timeoutMs);
+  }, { ...opts, isRetriable });
 }

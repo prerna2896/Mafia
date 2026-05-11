@@ -16,6 +16,11 @@ export interface GmailMessageDetail {
   raw_body?: string; // base64-encoded full RFC822, only when format='raw'
 }
 
+export interface ArchiveBatchResult {
+  ok: string[];
+  failed: { email_id: string; error: string }[];
+}
+
 export interface GmailAdapter {
   /** Move the message to Gmail trash. Idempotent — calling on already-trashed message is fine. */
   trash(email_id: string): Promise<void>;
@@ -25,6 +30,8 @@ export interface GmailAdapter {
   archive(email_id: string): Promise<void>;
   /** Re-add INBOX label. Idempotent. */
   unarchive(email_id: string): Promise<void>;
+  /** Batch archive (remove INBOX label) for up to 1000 ids. Returns per-id outcome. */
+  archiveBatch(email_ids: string[]): Promise<ArchiveBatchResult>;
   /** Fetch metadata (and optionally raw body) for snapshot purposes. */
   fetchDetail(email_id: string, includeBody: boolean): Promise<GmailMessageDetail>;
   /** Fetch the current label set; used by the reconciler. */
@@ -64,14 +71,14 @@ export class GoogleApisGmailAdapter implements GmailAdapter {
     await withResilience(async () => {
       const gmail = await this.client();
       await gmail.users.messages.trash({ userId: 'me', id: email_id });
-    });
+    }, { cost: 5 });
   }
 
   async untrash(email_id: string): Promise<void> {
     await withResilience(async () => {
       const gmail = await this.client();
       await gmail.users.messages.untrash({ userId: 'me', id: email_id });
-    });
+    }, { cost: 5 });
   }
 
   async archive(email_id: string): Promise<void> {
@@ -82,7 +89,7 @@ export class GoogleApisGmailAdapter implements GmailAdapter {
         id: email_id,
         requestBody: { removeLabelIds: ['INBOX'] },
       });
-    });
+    }, { cost: 5 });
   }
 
   async unarchive(email_id: string): Promise<void> {
@@ -93,7 +100,37 @@ export class GoogleApisGmailAdapter implements GmailAdapter {
         id: email_id,
         requestBody: { addLabelIds: ['INBOX'] },
       });
-    });
+    }, { cost: 5 });
+  }
+
+  async archiveBatch(email_ids: string[]): Promise<ArchiveBatchResult> {
+    if (email_ids.length === 0) return { ok: [], failed: [] };
+    // Gmail caps batchModify at 1000 ids per call. Chunking above that is the
+    // caller's responsibility; we surface the limit by failing fast.
+    if (email_ids.length > 1000) {
+      throw new Error(`archiveBatch: cap is 1000 ids per call, got ${email_ids.length}`);
+    }
+    // Quota cost: same scaling the legacy executeActions path used (5 per
+    // write). Per Gmail's quota docs batchModify charges per-id, so the cost
+    // grows linearly with the batch size.
+    const cost = 5 + 5 * email_ids.length;
+    try {
+      await withResilience(async () => {
+        const gmail = await this.client();
+        // batchModify returns 204 No Content on success — no per-id payload.
+        await gmail.users.messages.batchModify({
+          userId: 'me',
+          requestBody: { ids: email_ids, removeLabelIds: ['INBOX'] },
+        });
+      }, { cost });
+      return { ok: [...email_ids], failed: [] };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        ok: [],
+        failed: email_ids.map((id) => ({ email_id: id, error: msg })),
+      };
+    }
   }
 
   async fetchDetail(email_id: string, includeBody: boolean): Promise<GmailMessageDetail> {
@@ -119,7 +156,7 @@ export class GoogleApisGmailAdapter implements GmailAdapter {
         headers,
         raw_body: includeBody ? res.data.raw ?? undefined : undefined,
       };
-    });
+    }, { cost: 1 });
   }
 
   async fetchLabels(email_id: string): Promise<string[]> {
@@ -131,6 +168,6 @@ export class GoogleApisGmailAdapter implements GmailAdapter {
         format: 'minimal',
       });
       return res.data.labelIds ?? [];
-    });
+    }, { cost: 1 });
   }
 }

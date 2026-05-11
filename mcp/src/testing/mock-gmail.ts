@@ -5,7 +5,7 @@
 //   - tests/* (unit + integration tests)
 //   - evals/runner.ts (scenario runner)
 
-import type { GmailAdapter, GmailMessageDetail } from '../gmail/adapter.js';
+import type { ArchiveBatchResult, GmailAdapter, GmailMessageDetail } from '../gmail/adapter.js';
 
 export interface MockGmailInit {
   /** Initial label state per email_id (e.g. { msg1: ['INBOX'] }). */
@@ -79,6 +79,36 @@ export class MockGmailAdapter implements GmailAdapter {
     const set = this.labels.get(email_id) ?? new Set();
     set.delete('INBOX');
     this.labels.set(email_id, set);
+  }
+
+  /**
+   * Batch archive. Records exactly one call (`method: 'archiveBatch'`) whose
+   * email_id is the comma-joined list — that's enough for tests to assert
+   * "exactly one batch call happened" without inspecting per-id state.
+   *
+   * Failure modes mirror the real adapter:
+   *  - `failAlways.has('archiveBatch')` → every id marked failed.
+   *  - `failOnce.has('archiveBatch')` → first invocation only, every id failed.
+   * Per-id failures are simulated via `failAlways.add(email_id)` style isn't
+   * supported here because Gmail's batchModify doesn't expose per-id outcome.
+   */
+  async archiveBatch(email_ids: string[]): Promise<ArchiveBatchResult> {
+    this.calls.push({ method: 'archiveBatch', email_id: email_ids.join(','), ts: Date.now() });
+    if (this.failAlways.has('archiveBatch')) {
+      const msg = `mock archiveBatch always-fails`;
+      return { ok: [], failed: email_ids.map((id) => ({ email_id: id, error: msg })) };
+    }
+    if (this.failOnce.has('archiveBatch')) {
+      this.failOnce.delete('archiveBatch');
+      const msg = `mock archiveBatch once-fail`;
+      return { ok: [], failed: email_ids.map((id) => ({ email_id: id, error: msg })) };
+    }
+    for (const id of email_ids) {
+      const set = this.labels.get(id) ?? new Set();
+      set.delete('INBOX');
+      this.labels.set(id, set);
+    }
+    return { ok: [...email_ids], failed: [] };
   }
 
   async unarchive(email_id: string): Promise<void> {
