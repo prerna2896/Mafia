@@ -10,6 +10,10 @@
 //! will add the reflog (with hash chain verification) and the snapshot
 //! store.
 
+pub mod reflog;
 pub mod state_machine;
 
+pub use reflog::{
+    canonical_json, compute_entry_hash, sha256_hex, verify_chain, ReflogEntry, VerifyResult,
+};
 pub use state_machine::{next_state, IllegalTransition, Intent, State, Transition};
