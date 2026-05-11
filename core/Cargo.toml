@@ -1,0 +1,22 @@
+[package]
+name = "mafia-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Cross-platform trust primitives for Mafia: state machine, reflog, snapshot store"
+
+[lib]
+name = "mafia_core"
+path = "src/lib.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"
+
+[dev-dependencies]
