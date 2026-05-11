@@ -1,6 +1,10 @@
 // Pure state-transition functions. No I/O, no side effects.
 // Single source of truth for what transitions are legal.
 //
+// Dual-backend: TypeScript by default (V0), or Rust via the @mafia/core-node
+// FFI binding when MAFIA_CORE_BACKEND=rust. Same observable behavior; the
+// matrix test (`npm run test:matrix`) runs the full suite against both.
+//
 // State diagram:
 //
 //   flagged ──quarantine──▶ quarantining ──quarantine_complete──▶ quarantined
@@ -18,6 +22,15 @@
 //                                                       └─fail──▶ failed
 
 import type { State, Transition } from './types.js';
+import * as rustCore from '@mafia/core-node';
+
+const BACKEND = (process.env.MAFIA_CORE_BACKEND ?? 'typescript').toLowerCase();
+const USE_RUST = BACKEND === 'rust';
+
+/** Which backend is active. Exposed for diagnostics + eval reporting. */
+export function activeBackend(): 'rust' | 'typescript' {
+  return USE_RUST ? 'rust' : 'typescript';
+}
 
 interface TransitionRule {
   from: State[];
@@ -60,6 +73,10 @@ export class IllegalTransition extends Error {
  * Returns the resulting state, or throws IllegalTransition.
  */
 export function nextState(from: State | null, transition: Transition): State {
+  return USE_RUST ? nextStateRust(from, transition) : nextStateTs(from, transition);
+}
+
+function nextStateTs(from: State | null, transition: Transition): State {
   if (transition === 'genesis') {
     throw new IllegalTransition(from, transition); // genesis is reflog-only
   }
@@ -73,10 +90,20 @@ export function nextState(from: State | null, transition: Transition): State {
   return rule.to;
 }
 
+function nextStateRust(from: State | null, transition: Transition): State {
+  try {
+    return rustCore.nextState(from, transition) as State;
+  } catch {
+    // Re-wrap so callers still see our IllegalTransition class.
+    throw new IllegalTransition(from, transition);
+  }
+}
+
 /**
  * Convenience: is the given state terminal? Terminal states never transition further.
  */
 export function isTerminal(state: State): boolean {
+  if (USE_RUST) return rustCore.isTerminal(state);
   return state === 'kept' || state === 'restored' || state === 'purged' || state === 'failed';
 }
 
@@ -85,6 +112,7 @@ export function isTerminal(state: State): boolean {
  * on startup by the outbox reconcile pass.
  */
 export function isInFlight(state: State): boolean {
+  if (USE_RUST) return rustCore.isInFlight(state);
   return state === 'quarantining' || state === 'restoring' || state === 'purging';
 }
 
