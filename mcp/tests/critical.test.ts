@@ -172,14 +172,15 @@ describe('critical: cross-session re-flag after restore', () => {
 describe('critical: large body blob is gzipped and stored without crash', () => {
   it('5 MB body is stored, gzipped smaller, round-trips intact', () => {
     const { db } = setup();
-    // 5 MB of mostly-repeated text — gzip should compress dramatically
-    const body = 'A'.repeat(5_000_000);
+    // 5 MB of mostly-repeated text — gzip should compress dramatically.
+    // body_raw must be base64url (Gmail's format:'raw' shape).
+    const bodyBuf = Buffer.from('A'.repeat(5_000_000), 'utf-8');
     const id = writeSnapshot(db, 'delete', {
       email_id: 'msg-big',
       internal_date: 1700000000,
       headers: { Subject: 'big email' },
       label_ids: ['INBOX'],
-      body_raw: body,
+      body_raw: bodyBuf.toString('base64url'),
     });
 
     const snap = readSnapshot(db, id);
@@ -189,24 +190,28 @@ describe('critical: large body blob is gzipped and stored without crash', () => 
     expect(snap!.body_blob!.length).toBeLessThan(100_000);
 
     const round = readBody(snap!);
-    expect(round).toBe(body);
+    expect(round).not.toBeNull();
+    expect(round!.equals(bodyBuf)).toBe(true);
   });
 
   it('high-entropy body still round-trips', () => {
     const { db } = setup();
-    // 1 MB of random bytes — gzip won't help much but must still work
+    // 1 MB of random bytes — gzip won't help much but must still work.
+    // This exercises the binary-faithful path: arbitrary byte content
+    // including 8-bit MIME parts and would-be attachments.
     const body = Buffer.alloc(1_000_000);
     for (let i = 0; i < body.length; i++) body[i] = Math.floor(Math.random() * 256);
-    const bodyStr = body.toString('binary');
     const id = writeSnapshot(db, 'delete', {
       email_id: 'msg-rnd',
       internal_date: 1700000000,
       headers: { Subject: 'random' },
       label_ids: ['INBOX'],
-      body_raw: bodyStr,
+      body_raw: body.toString('base64url'),
     });
     const snap = readSnapshot(db, id);
-    expect(readBody(snap!)).toBe(bodyStr);
+    const round = readBody(snap!);
+    expect(round).not.toBeNull();
+    expect(round!.equals(body)).toBe(true);
   });
 
   it('gzip round-trip independently produces matching hashes', () => {

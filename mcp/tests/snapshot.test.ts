@@ -53,22 +53,54 @@ describe('snapshot: hybrid storage', () => {
   it('delete intent stores gzipped body blob and exact size', () => {
     const db = fresh();
     const body = 'From: x@y.com\nSubject: spam\n\n' + 'lorem ipsum '.repeat(100);
+    const bodyBuf = Buffer.from(body, 'utf-8');
     const id = writeSnapshot(db, 'delete', {
       email_id: 'msg2',
       internal_date: 1700000000,
       headers: { Subject: 'spam' },
       label_ids: ['INBOX'],
-      body_raw: body,
+      body_raw: bodyBuf.toString('base64url'),
     });
 
     const snap = readSnapshot(db, id);
     expect(snap!.body_blob).not.toBeNull();
-    expect(snap!.body_size_bytes).toBe(Buffer.from(body, 'utf-8').length);
+    // body_size_bytes is the *decoded* email size, not the base64 length.
+    expect(snap!.body_size_bytes).toBe(bodyBuf.length);
     // gzip should be smaller than raw for repetitive content
     expect(snap!.body_blob!.length).toBeLessThan(snap!.body_size_bytes!);
 
     const decoded = readBody(snap!);
-    expect(decoded).toBe(body);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.equals(bodyBuf)).toBe(true);
+  });
+
+  it('non-ASCII RFC822 body round-trips byte-faithfully', () => {
+    const db = fresh();
+    // UTF-8 subject + body with non-ASCII bytes — the kind of thing utf-8
+    // string handling would either preserve (lucky) or mangle on edge cases.
+    const body =
+      'From: x@y.com\r\nSubject: Café résumé — naïve façade\r\n\r\n' +
+      'Pingüino: 🐧 (multi-byte). Some bytes: ' +
+      Buffer.from([0xc3, 0xa9, 0xe2, 0x98, 0x83]).toString('utf-8');
+    const bodyBuf = Buffer.from(body, 'utf-8');
+    const encoded = bodyBuf.toString('base64url');
+    const id = writeSnapshot(db, 'delete', {
+      email_id: 'msg-utf8',
+      internal_date: 1700000000,
+      headers: { Subject: 'utf8 test' },
+      label_ids: ['INBOX'],
+      body_raw: encoded,
+    });
+
+    const snap = readSnapshot(db, id);
+    expect(snap!.body_size_bytes).toBe(bodyBuf.length);
+    // base64 encoding inflates ~33%, so the encoded length must be larger
+    // than the stored size — proves we're decoding, not storing base64.
+    expect(encoded.length).toBeGreaterThan(snap!.body_size_bytes!);
+
+    const round = readBody(snap!);
+    expect(round).not.toBeNull();
+    expect(round!.equals(bodyBuf)).toBe(true);
   });
 
   it('writeSnapshot is idempotent (same id, INSERT OR IGNORE)', () => {
@@ -78,14 +110,14 @@ describe('snapshot: hybrid storage', () => {
       internal_date: 1700000000,
       headers: { Subject: 'A' },
       label_ids: [],
-      body_raw: 'first',
+      body_raw: Buffer.from('first', 'utf-8').toString('base64url'),
     });
     const id2 = writeSnapshot(db, 'delete', {
       email_id: 'msg3',
       internal_date: 1700000000,
       headers: { Subject: 'B' }, // different headers
       label_ids: [],
-      body_raw: 'second',
+      body_raw: Buffer.from('second', 'utf-8').toString('base64url'),
     });
     expect(id1).toBe(id2);
     // First write wins
@@ -95,17 +127,18 @@ describe('snapshot: hybrid storage', () => {
 
   it('dropBody nulls the blob but keeps size and headers', () => {
     const db = fresh();
+    const bodyBytes = Buffer.from('gone soon', 'utf-8');
     const id = writeSnapshot(db, 'delete', {
       email_id: 'msg4',
       internal_date: 1700000000,
       headers: { From: 'old@news.com' },
       label_ids: [],
-      body_raw: 'gone soon',
+      body_raw: bodyBytes.toString('base64url'),
     });
     dropBody(db, id);
     const snap = readSnapshot(db, id);
     expect(snap!.body_blob).toBeNull();
-    expect(snap!.body_size_bytes).toBe(Buffer.from('gone soon', 'utf-8').length);
+    expect(snap!.body_size_bytes).toBe(bodyBytes.length);
     expect(JSON.parse(snap!.headers_json).From).toBe('old@news.com');
   });
 });

@@ -17,7 +17,9 @@ export interface SnapshotInput {
   internal_date: number;
   headers: Record<string, string>;
   label_ids: string[];
-  body_raw?: string; // RFC822 raw body; only used for delete intent
+  // URL-safe base64-encoded RFC822 raw body (Gmail's
+  // users.messages.get({format:'raw'}) output). Only used for delete intent.
+  body_raw?: string;
 }
 
 /**
@@ -41,9 +43,16 @@ export function writeSnapshot(
   let bodyBlob: Buffer | null = null;
   let bodySize: number | null = null;
   if (intent === 'delete' && input.body_raw !== undefined) {
-    const buf = Buffer.from(input.body_raw, 'utf-8');
-    bodyBlob = gzipSync(buf);
-    bodySize = buf.length;
+    // body_raw is base64url-encoded RFC822 (Gmail's format:'raw' output).
+    // Decode to a binary buffer before gzipping so we (a) don't store the
+    // ~33% base64 inflation and (b) report body_size_bytes as the actual
+    // email size, not the encoded length.
+    // NB: prior versions of this code used `Buffer.from(input.body_raw, 'utf-8')`
+    // which double-inflated storage and recorded the wrong size — old rows in
+    // a dev DB are still readable as latin1 strings but are gzipped base64.
+    const decoded = Buffer.from(input.body_raw, 'base64url');
+    bodyBlob = gzipSync(decoded);
+    bodySize = decoded.length;
   }
 
   db.prepare(`
@@ -72,11 +81,14 @@ export function readSnapshot(db: Database.Database, id: string): EmailSnapshot |
 }
 
 /**
- * Decompress and return the raw RFC822 body, if present.
+ * Decompress and return the raw RFC822 body as a Buffer, if present.
+ * Returning Buffer (rather than string) keeps callers honest about binary
+ * payloads: an RFC822 email is bytes, not text, and forcing a utf-8 decode
+ * here would corrupt 8-bit MIME parts and binary attachments.
  */
-export function readBody(snapshot: EmailSnapshot): string | null {
+export function readBody(snapshot: EmailSnapshot): Buffer | null {
   if (!snapshot.body_blob) return null;
-  return gunzipSync(snapshot.body_blob).toString('utf-8');
+  return gunzipSync(snapshot.body_blob);
 }
 
 /**

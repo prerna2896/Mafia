@@ -27,6 +27,11 @@ export function getDb(): Database.Database {
     _db.pragma('journal_mode = WAL');
     _db.pragma('synchronous = NORMAL');
     _db.pragma('foreign_keys = ON');
+    // Default WAL behavior lets the journal grow unbounded between commits;
+    // we've observed 3 MB WAL against a 128 KB DB. 1000 pages × default page
+    // size (~4 KB) gives a ~4 MB checkpoint threshold — enough to amortize
+    // commits, small enough to keep the WAL bounded.
+    _db.pragma('wal_autocheckpoint = 1000');
     migrate(_db);
     migrate001(_db);
   }

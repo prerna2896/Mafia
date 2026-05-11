@@ -117,6 +117,14 @@ async function startupReconcile() {
     const gmail = makeGmailAdapter(user.id);
     const reconciled = await reconcileInFlight(db, gmail);
     const purged = runPurger(db);
+    // Truncate the WAL on startup so a long-idle server doesn't ship with
+    // a stale, oversized journal. autocheckpoint handles the steady state;
+    // this just bounds the cold-start floor.
+    try {
+      db.pragma('wal_checkpoint(TRUNCATE)');
+    } catch (err) {
+      console.error('Mafia startup: wal_checkpoint failed:', err);
+    }
     if (reconciled.reconciled.length || reconciled.failed.length || purged.purged.length) {
       console.error(
         `Mafia startup: reconciled ${reconciled.reconciled.length}, ` +
