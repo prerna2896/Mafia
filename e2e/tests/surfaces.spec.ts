@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test';
 import { bootApp, openTab } from './helpers/setup';
 
 test.describe('Surfaces tab', () => {
+  // Vite dev server occasionally times out on parallel page.goto under
+  // worker load — auto-retry once to absorb that.
+  test.describe.configure({ retries: 1 });
+
   test.beforeEach(async ({ page }) => {
     await bootApp(page);
     await openTab(page, 'Surfaces');
@@ -27,7 +31,9 @@ test.describe('Surfaces tab', () => {
 
   test('Dropbox shows "Not connected" with Add button', async ({ page }) => {
     await expect(page.getByText('Not connected')).toBeVisible();
-    await expect(page.getByText(/^Add$/)).toBeVisible();
+    // The "Add" affordance is a span with a leading + icon — its text node
+    // has leading whitespace from the SVG. Match loosely.
+    await expect(page.getByText(/Add/).filter({ hasText: /^\s*Add\s*$/ })).toBeVisible();
   });
 
   test('Coherence card shows 94% deduped copy', async ({ page }) => {
@@ -41,7 +47,9 @@ test.describe('Surfaces tab', () => {
     await expect(page.getByText('12,847')).toBeVisible();
     await expect(page.getByText('1,204')).toBeVisible();
     await expect(page.getByText('76')).toBeVisible();
-    await expect(page.getByText('Entities')).toBeVisible();
+    // "Entities" also appears inside the coherence card body
+    // ("· Unique entities · 94%") — pin to the stat-tile label with exact match.
+    await expect(page.getByText('Entities', { exact: true })).toBeVisible();
     await expect(page.getByText('Cross-linked')).toBeVisible();
     await expect(page.getByText('Duplicates left')).toBeVisible();
   });

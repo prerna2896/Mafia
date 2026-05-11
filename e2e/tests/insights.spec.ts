@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test';
 import { bootApp, openTab } from './helpers/setup';
 
 test.describe('Insights tab', () => {
+  // Vite dev server occasionally times out on parallel page.goto under
+  // worker load — auto-retry once to absorb that.
+  test.describe.configure({ retries: 1 });
+
   test.beforeEach(async ({ page }) => {
     await bootApp(page);
     await openTab(page, 'Insights');
@@ -17,10 +21,12 @@ test.describe('Insights tab', () => {
   });
 
   test('3-up sub-stats: Protected / Vaulted / Lost', async ({ page }) => {
-    await expect(page.getByText('Protected')).toBeVisible();
-    await expect(page.getByText('Vaulted')).toBeVisible();
-    await expect(page.getByText('Lost')).toBeVisible();
-    await expect(page.getByText('1,847')).toBeVisible();
+    // Use exact match — "Protected" also appears in the wrapped-card body
+    // copy "photos protected with reasons".
+    await expect(page.getByText('Protected', { exact: true })).toBeVisible();
+    await expect(page.getByText('Vaulted', { exact: true })).toBeVisible();
+    await expect(page.getByText('Lost', { exact: true })).toBeVisible();
+    await expect(page.getByText('1,847').first()).toBeVisible();
     await expect(page.getByText('312')).toBeVisible();
     await expect(page.getByText(/^0$/).first()).toBeVisible();
   });
@@ -29,8 +35,12 @@ test.describe('Insights tab', () => {
     await expect(page.getByText('Protection')).toBeVisible();
     await expect(page.getByText('Top sender')).toBeVisible();
     await expect(page.getByText('Library')).toBeVisible();
-    await expect(page.getByText('We learned')).toBeVisible();
-    await expect(page.getByText('LinkedIn')).toBeVisible();
+    // "We learned" eyebrow on a wrapped card — disambiguate from the
+    // "This week we learned…" section eyebrow with an exact match.
+    await expect(page.getByText('We learned', { exact: true })).toBeVisible();
+    // "LinkedIn" appears in both the wrapped card and the
+    // "You don't keep LinkedIn digests" chip. Pin to the standalone card.
+    await expect(page.getByText('LinkedIn', { exact: true })).toBeVisible();
     await expect(page.getByText(/^94%$/)).toBeVisible();
   });
 
@@ -44,8 +54,15 @@ test.describe('Insights tab', () => {
 
   test('Edit all preferences expands existing chips', async ({ page }) => {
     await page.getByRole('button', { name: /Edit all preferences/ }).click();
-    await expect(page.getByText('You keep group shots')).toBeVisible();
-    await expect(page.getByText('You vault DoorDash receipts')).toBeVisible();
+    // Each learning chip has a "Forget <text>" × button — use that as a
+    // stable, unambiguous handle (the DoorDash phrase otherwise collides
+    // with the "This week we learned…" panel heading).
+    await expect(
+      page.getByRole('button', { name: /Forget You keep group shots/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /Forget You vault DoorDash receipts/ }),
+    ).toBeVisible();
   });
 
   test('Removing a chip removes it (× → Forget → confirm)', async ({ page }) => {

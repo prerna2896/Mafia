@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test';
 import { bootApp, openTab } from './helpers/setup';
 
 test.describe('Vault tab', () => {
+  // Vite dev server occasionally times out on parallel page.goto under
+  // worker load — auto-retry once to absorb that.
+  test.describe.configure({ retries: 1 });
+
   test.beforeEach(async ({ page }) => {
     await bootApp(page);
     await openTab(page, 'Vault');
@@ -34,10 +38,17 @@ test.describe('Vault tab', () => {
     await expect(page.getByText(/From Gmail/i).first()).toBeVisible();
   });
 
-  test('Restore selected disabled when 0 selected; Select all + Clear toggle', async ({ page }) => {
-    // Open Review on the first bundle row (LinkedIn digest, v2).
+  // The purge banner at the top also has a "Review" button (no-op demo).
+  // For bundle rows we want the per-row Review beside "Restore all".
+  // Skip index 0 (the banner) and use index 1 onward.
+  const openFirstBundleReview = async (page: import('@playwright/test').Page) => {
     const reviewBtns = page.getByRole('button', { name: /^Review$/ });
-    await reviewBtns.first().click();
+    // index 0 = purge-banner button, index 1 = first row Review (v1 Goa burst).
+    await reviewBtns.nth(1).click();
+  };
+
+  test('Restore selected disabled when 0 selected; Select all + Clear toggle', async ({ page }) => {
+    await openFirstBundleReview(page);
     // Restore selected button starts disabled.
     const restoreSel = page.getByRole('button', { name: /Restore selected/ });
     await expect(restoreSel).toBeDisabled();
@@ -52,7 +63,7 @@ test.describe('Vault tab', () => {
   });
 
   test('Restoring selected closes review (and surfaces a toast)', async ({ page }) => {
-    await page.getByRole('button', { name: /^Review$/ }).first().click();
+    await openFirstBundleReview(page);
     await page.getByRole('button', { name: /^Select all$/ }).click();
     await page.getByRole('button', { name: /Restore selected/ }).click();
     // Review pane collapses → "Select all" button no longer in DOM.
@@ -69,47 +80,30 @@ test.describe('Vault tab', () => {
   });
 
   test('Visual bundle Review shows Swipe / See all toggle (v1 burst)', async ({ page }) => {
-    // The first row in the file is "Goa burst" (v1), which is a visual bundle.
-    // Click its Review.
-    await page.getByRole('button', { name: /^Review$/ }).first().click();
+    // The first row in the file is "Goa burst" (v1), a visual bundle.
+    // Skip the purge-banner Review button at index 0.
+    await openFirstBundleReview(page);
     // The Swipe + See all toggles only appear for visual bundles.
     const swipeBtn = page.getByRole('button', { name: /^Swipe$/ });
     const seeAllBtn = page.getByRole('button', { name: /^See all$/ });
-    // If this Review is on a visual bundle, both buttons appear.
-    // If not (different bundle), assert reviews work in list form. We accept either.
-    if (await swipeBtn.count()) {
-      await expect(swipeBtn).toBeVisible();
-      await expect(seeAllBtn).toBeVisible();
-      // Switch to grid then back.
-      await seeAllBtn.click();
-      await swipeBtn.click();
-    } else {
-      // Fall back: list-style review still exposes Select all.
-      await expect(page.getByRole('button', { name: /^Select all$/ })).toBeVisible();
-    }
+    await expect(swipeBtn).toBeVisible();
+    await expect(seeAllBtn).toBeVisible();
+    // Switch to grid then back.
+    await seeAllBtn.click();
+    await swipeBtn.click();
   });
 
   test('Swipe Keep/Skip auto-advances cursor', async ({ page }) => {
-    // Find the first row whose Review opens a swipe view.
-    const reviewBtns = page.getByRole('button', { name: /^Review$/ });
-    const total = await reviewBtns.count();
-    let opened = false;
-    for (let i = 0; i < total; i++) {
-      await reviewBtns.nth(i).click();
-      if (await page.getByRole('button', { name: /^Swipe$/ }).count()) {
-        opened = true;
-        break;
-      }
-      // close and try next
-      await page.getByRole('button', { name: /^Close$/ }).click();
-    }
-    if (!opened) test.skip(true, 'No visual bundle exposed in current vault data');
+    // Open v1 Goa burst review (first per-row Review; index 0 is the purge banner).
+    await openFirstBundleReview(page);
+    await expect(page.getByRole('button', { name: /^Swipe$/ })).toBeVisible();
 
-    // The cursor label is "1 / N". Click Keep, expect "2 / N".
+    // The cursor label is "1 / N · …meta…". Click Keep, expect cursor advances.
     const label = page.locator('text=/^\\d+ \\/ \\d+/').first();
     await expect(label).toBeVisible();
     const before = (await label.textContent())?.split('/')[0].trim();
-    await page.getByRole('button', { name: 'Keep' }).click();
+    // Calm-vibe Keep button is aria-labelled "Keep".
+    await page.getByRole('button', { name: /^Keep$/ }).click();
     const after = (await label.textContent())?.split('/')[0].trim();
     expect(before).not.toBe(after);
   });

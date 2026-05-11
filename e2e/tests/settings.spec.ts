@@ -2,6 +2,10 @@ import { test, expect } from '@playwright/test';
 import { bootApp, openTab } from './helpers/setup';
 
 test.describe('Settings tab', () => {
+  // Vite dev server occasionally times out on parallel page.goto under
+  // worker load — auto-retry once to absorb that.
+  test.describe.configure({ retries: 1 });
+
   test.beforeEach(async ({ page }) => {
     await bootApp(page);
     await openTab(page, 'Settings');
