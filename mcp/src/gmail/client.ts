@@ -101,23 +101,38 @@ export interface EmailMetadata {
 
 export async function fetchEmails(
   userId: string,
-  opts: { count?: number; labels?: string[]; minAgeDays?: number } = {}
+  opts: { count?: number; labels?: string[]; minAgeDays?: number; maxAgeDays?: number } = {}
 ): Promise<EmailMetadata[]> {
   const client = await getAuthenticatedClient(userId);
   const gmail = google.gmail({ version: 'v1', auth: client });
 
-  const { count = 20, labels = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL'], minAgeDays = 1 } = opts;
+  const { count = 20, labels = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL'], minAgeDays = 1, maxAgeDays } = opts;
 
-  // Build query
-  const ageCutoff = new Date(Date.now() - minAgeDays * 86400000);
-  const dateStr = `${ageCutoff.getFullYear()}/${String(ageCutoff.getMonth() + 1).padStart(2, '0')}/${String(ageCutoff.getDate()).padStart(2, '0')}`;
-  const q = `before:${dateStr} -is:starred -label:important`;
+  const fmt = (d: Date) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  const beforeMs = Date.now() - minAgeDays * 86400000;
+  const afterMs = maxAgeDays !== undefined ? Date.now() - maxAgeDays * 86400000 : undefined;
 
-  // Fetch message IDs
+  // Translate labels into query operators (OR'd) instead of using labelIds.
+  // Gmail's labelIds is an AND filter and has been observed to interact
+  // unreliably with date operators like after:/before: — putting labels in
+  // the q string with proper operators ({...} = OR) avoids both issues.
+  const labelClauses = labels.map(toLabelQuery);
+  const labelExpr = labelClauses.length === 0
+    ? ''
+    : labelClauses.length === 1 ? labelClauses[0] : `{${labelClauses.join(' ')}}`;
+
+  const parts = [labelExpr, `before:${fmt(new Date(beforeMs))}`, '-is:starred', '-label:important'].filter(Boolean);
+  if (afterMs !== undefined) {
+    parts.splice(1, 0, `after:${fmt(new Date(afterMs))}`);
+  }
+  const q = parts.join(' ');
+
+  // Over-fetch from Gmail because its date operators can be loose (Gmail's docs
+  // explicitly note `after:`/`before:` may include off-window results). We
+  // post-filter on internalDate below, so ask for more than we'll return.
   const listRes = await gmail.users.messages.list({
     userId: 'me',
-    labelIds: labels,
-    maxResults: count,
+    maxResults: Math.min(100, Math.max(count * 3, count)),
     q,
   });
 
@@ -125,7 +140,8 @@ export async function fetchEmails(
   if (messages.length === 0) return [];
 
   // Fetch metadata for each message (parallel, capped at 10 concurrent)
-  const results: EmailMetadata[] = [];
+  type WithInternalDate = EmailMetadata & { internalDate: number };
+  const results: WithInternalDate[] = [];
   const chunks = chunkArray(messages, 10);
 
   for (const chunk of chunks) {
@@ -156,13 +172,21 @@ export async function fetchEmails(
           snippet: res.data.snippet ?? '',
           labels: res.data.labelIds ?? [],
           sizeEstimate: res.data.sizeEstimate ?? 0,
+          internalDate: Number(res.data.internalDate ?? 0),
         };
       })
     );
     results.push(...fetched);
   }
 
-  return results;
+  // Post-filter on internalDate (authoritative) — Gmail's after:/before: can leak.
+  const filtered = results.filter(r => {
+    if (r.internalDate >= beforeMs) return false;
+    if (afterMs !== undefined && r.internalDate < afterMs) return false;
+    return true;
+  });
+  filtered.sort((a, b) => b.internalDate - a.internalDate);
+  return filtered.slice(0, count).map(({ internalDate: _omit, ...rest }) => rest);
 }
 
 export async function getEmailBody(userId: string, emailId: string): Promise<string> {
@@ -225,6 +249,15 @@ export async function executeActions(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function toLabelQuery(label: string): string {
+  const cat = label.match(/^CATEGORY_(.+)$/);
+  if (cat) {
+    const c = cat[1].toLowerCase();
+    return c === 'personal' ? 'category:primary' : `category:${c}`;
+  }
+  return `label:${label.toLowerCase()}`;
+}
 
 function chunkArray<T>(arr: T[], size: number): T[][] {
   const chunks: T[][] = [];

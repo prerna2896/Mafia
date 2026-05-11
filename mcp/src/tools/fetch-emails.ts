@@ -8,6 +8,8 @@ export const fetchEmailsSchema = z.object({
     .describe('Gmail label IDs to fetch from. Common: CATEGORY_PROMOTIONS, CATEGORY_SOCIAL, INBOX'),
   min_age_days: z.number().default(1)
     .describe('Only fetch emails older than this many days (avoids very recent emails)'),
+  max_age_days: z.number().optional()
+    .describe('Only fetch emails newer than this many days. Combine with min_age_days to bracket a date window (e.g. min=159 max=189 ≈ Nov 2025).'),
 });
 
 export type FetchEmailsInput = z.infer<typeof fetchEmailsSchema>;
@@ -20,6 +22,7 @@ export async function fetchEmailsTool(input: FetchEmailsInput) {
     count: input.count,
     labels: input.labels,
     minAgeDays: input.min_age_days,
+    maxAgeDays: input.max_age_days,
   });
 
   if (emails.length === 0) {
