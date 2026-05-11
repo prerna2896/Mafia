@@ -63,6 +63,7 @@ export async function summarizeEmailTool(input: SummarizeEmailInput) {
     recommendation: summary.recommendedAction,
     reasoning: summary.reasoning,
     sizeKB: Math.round(email.sizeEstimate / 1024),
+    backend: summary.backend,
     hint: `Suggested action: ${summary.recommendedAction.toUpperCase()}. Use act_on_email to execute.`,
   };
 }
