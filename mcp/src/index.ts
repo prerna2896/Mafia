@@ -10,12 +10,14 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 
 import { fetchEmailsSchema, fetchEmailsTool } from './tools/fetch-emails.js';
 import { summarizeEmailSchema, summarizeEmailTool } from './tools/summarize-email.js';
+import { topSendersSchema, topSendersTool } from './tools/top-senders.js';
 import { actOnEmailSchema, actOnEmailTool } from './tools/act-on-email.js';
 import { commitSessionSchema, commitSessionTool } from './tools/commit-session.js';
 import { getSessionStatsSchema, getSessionStatsTool } from './tools/get-stats.js';
 import { restoreSchema, restoreTool } from './tools/restore.js';
 import { listVaultSchema, listVaultTool } from './tools/list-vault.js';
 import { clearVaultSchema, clearVaultTool } from './tools/clear-vault.js';
+import { DAILY_BRIEF_URI, dailyBriefHandler } from './resources/daily-brief.js';
 import { getDb, getFirstUser } from './db/index.js';
 import { makeGmailAdapter } from './gmail/adapter.js';
 import { reconcileInFlight } from './quarantine/outbox.js';
@@ -41,6 +43,16 @@ server.tool(
   summarizeEmailSchema.shape,
   async (input) => {
     const result = await summarizeEmailTool(input as never);
+    return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
+  },
+);
+
+server.tool(
+  'top_senders',
+  'Aggregate recent mail by sender — reveals the small set of senders responsible for most inbox volume. Reach for this when the user says "too many emails," asks about storage, mentions inbox volume, or wants to find junk patterns. Returns top-N senders with counts, % of scanned, KB estimate, and sample subjects. Pair with fetch_emails + act_on_email for bulk triage.',
+  topSendersSchema.shape,
+  async (input) => {
+    const result = await topSendersTool(input as never);
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   },
 );
@@ -103,6 +115,22 @@ server.tool(
     const result = await getSessionStatsTool();
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   },
+);
+
+// ── Resources ─────────────────────────────────────────────────────────────────
+
+// daily_brief — Phase 0 retention surface (PRD §9). Claude can pull this into
+// morning prompts: "here's what Mafia found overnight." Markdown blob, derived
+// from the local quarantine DB plus a small Gmail probe.
+server.registerResource(
+  'daily_brief',
+  DAILY_BRIEF_URI,
+  {
+    description:
+      "Mafia's morning brief — pending actions, vault expirations in the next 3 days, top sender from the last week, and lifetime investment stats. Pull this when starting a Mafia session.",
+    mimeType: 'text/markdown',
+  },
+  dailyBriefHandler,
 );
 
 // ── Startup tasks ─────────────────────────────────────────────────────────────

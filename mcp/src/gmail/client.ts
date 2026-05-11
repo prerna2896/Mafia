@@ -264,3 +264,229 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
   for (let i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
   return chunks;
 }
+
+// ── Sender aggregation (top_senders tool) ─────────────────────────────────────
+
+export interface SenderAggregate {
+  /** Display string ("Acme <hi@acme.com>" or the raw From if no display name). */
+  from: string;
+  /** Lowercased email address — the aggregation key. */
+  fromEmail: string;
+  count: number;
+  percentOfScanned: number;
+  estimatedKB: number;
+  /** Up to 3 representative subject lines for the sender. */
+  sampleSubjects: string[];
+}
+
+export interface TopSendersResult {
+  totalScanned: number;
+  totalSendersFound: number;
+  topSenders: SenderAggregate[];
+  /** Coverage of the top-N over the scanned window (e.g. "top 18 = 73% of scanned"). */
+  coverage: { topN_count: number; topN_percent: number };
+}
+
+export interface TopSendersOpts {
+  topN?: number;
+  labels?: string[];
+  minAgeDays?: number;
+  maxAgeDays?: number;
+  /** How many recent messages to scan before aggregating (paged across list calls). */
+  sampleSize?: number;
+}
+
+/**
+ * Narrow surface of the Gmail `users.messages` resource that topSenders needs.
+ * Extracted so tests can inject a fake without going through googleapis.
+ */
+export interface GmailMessagesApi {
+  list: (params: {
+    userId: string;
+    maxResults?: number;
+    q?: string;
+    pageToken?: string;
+  }) => Promise<{ data: { messages?: { id?: string | null; threadId?: string | null }[] | null; nextPageToken?: string | null } }>;
+  get: (params: {
+    userId: string;
+    id: string;
+    format?: string;
+    metadataHeaders?: string[];
+  }) => Promise<{ data: { payload?: { headers?: { name?: string | null; value?: string | null }[] | null } | null; sizeEstimate?: number | null } }>;
+}
+
+/**
+ * Scan up to `sampleSize` recent messages matching the given label/date window,
+ * aggregate by normalized sender email, and return the top-N senders by count.
+ *
+ * The aha-moment query the PRD calls out (§5.0a): "18 senders are responsible
+ * for 73% of unread junk." This tool exists so Claude can surface that
+ * concentration in one call — `fetchEmails` returns per-message metadata only.
+ *
+ * Self-contained on purpose: uses its own list/get loop instead of building on
+ * fetchEmails so post-filter semantics, paging, and parallel chunking are
+ * tuned for aggregation (we don't need order, we need volume + breadth).
+ *
+ * Tests can pass `__messagesApi` to bypass OAuth + googleapis entirely.
+ */
+export async function topSenders(
+  userId: string,
+  opts: TopSendersOpts = {},
+  __messagesApi?: GmailMessagesApi,
+): Promise<TopSendersResult> {
+  const messages: GmailMessagesApi = __messagesApi ?? await (async () => {
+    const client = await getAuthenticatedClient(userId);
+    const gmail = google.gmail({ version: 'v1', auth: client });
+    return gmail.users.messages as unknown as GmailMessagesApi;
+  })();
+
+  const {
+    topN = 10,
+    labels = ['CATEGORY_PROMOTIONS', 'CATEGORY_SOCIAL', 'CATEGORY_UPDATES'],
+    minAgeDays = 0,
+    maxAgeDays = 365,
+    sampleSize = 500,
+  } = opts;
+
+  const cappedSampleSize = Math.min(sampleSize, 2000);
+
+  const fmt = (d: Date) =>
+    `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  const beforeMs = Date.now() - minAgeDays * 86400000;
+  const afterMs = Date.now() - maxAgeDays * 86400000;
+
+  // Same labelIds-as-query-operators trick fetchEmails uses (see comment there).
+  const labelClauses = labels.map(toLabelQuery);
+  const labelExpr = labelClauses.length === 0
+    ? ''
+    : labelClauses.length === 1 ? labelClauses[0] : `{${labelClauses.join(' ')}}`;
+
+  const parts = [
+    labelExpr,
+    `after:${fmt(new Date(afterMs))}`,
+    `before:${fmt(new Date(beforeMs))}`,
+    '-is:starred',
+    '-label:important',
+  ].filter(Boolean);
+  const q = parts.join(' ');
+
+  // Page through list until we have `cappedSampleSize` ids or Gmail runs out.
+  const ids: { id: string; threadId?: string | null }[] = [];
+  let pageToken: string | undefined;
+  while (ids.length < cappedSampleSize) {
+    const remaining = cappedSampleSize - ids.length;
+    const res = await messages.list({
+      userId: 'me',
+      // Gmail caps maxResults at 500 per page; ask for at most what we still need.
+      maxResults: Math.min(500, remaining),
+      q,
+      pageToken,
+    });
+    const batch = res.data.messages ?? [];
+    for (const m of batch) if (m.id) ids.push({ id: m.id, threadId: m.threadId });
+    pageToken = res.data.nextPageToken ?? undefined;
+    if (!pageToken || batch.length === 0) break;
+  }
+
+  if (ids.length === 0) {
+    return {
+      totalScanned: 0,
+      totalSendersFound: 0,
+      topSenders: [],
+      coverage: { topN_count: 0, topN_percent: 0 },
+    };
+  }
+
+  // Metadata-only get per id, parallel chunks of 10. We don't need bodies.
+  type MsgMeta = { fromName: string; fromEmail: string; subject: string; size: number };
+  const metas: MsgMeta[] = [];
+  const chunks = chunkArray(ids, 10);
+  for (const chunk of chunks) {
+    const fetched = await Promise.all(
+      chunk.map(async ({ id }) => {
+        try {
+          const res = await messages.get({
+            userId: 'me',
+            id,
+            format: 'metadata',
+            metadataHeaders: ['From', 'Subject', 'Date'],
+          });
+          const headers = res.data.payload?.headers ?? [];
+          const get = (name: string) =>
+            headers.find((h) => h.name?.toLowerCase() === name.toLowerCase())?.value ?? '';
+          const fromRaw = get('From');
+          const fromMatch = fromRaw.match(/^(.*?)\s*<(.+?)>$/) ?? [];
+          const fromName = fromMatch[1]?.trim().replace(/"/g, '') || fromRaw;
+          const fromEmail = (fromMatch[2] || fromRaw).toLowerCase();
+          return {
+            fromName,
+            fromEmail,
+            subject: get('Subject') || '(no subject)',
+            size: res.data.sizeEstimate ?? 0,
+          } as MsgMeta;
+        } catch {
+          // Skip individual message fetch failures — partial aggregation is
+          // still useful and one bad message shouldn't tank the whole scan.
+          return null;
+        }
+      }),
+    );
+    for (const m of fetched) if (m) metas.push(m);
+  }
+
+  // Aggregate by lowercased email.
+  interface Acc {
+    fromName: string;
+    fromEmail: string;
+    count: number;
+    sizeBytes: number;
+    subjects: string[];
+  }
+  const buckets = new Map<string, Acc>();
+  for (const m of metas) {
+    if (!m.fromEmail) continue;
+    const cur = buckets.get(m.fromEmail);
+    if (cur) {
+      cur.count += 1;
+      cur.sizeBytes += m.size;
+      if (cur.subjects.length < 3 && !cur.subjects.includes(m.subject)) {
+        cur.subjects.push(m.subject);
+      }
+    } else {
+      buckets.set(m.fromEmail, {
+        fromName: m.fromName,
+        fromEmail: m.fromEmail,
+        count: 1,
+        sizeBytes: m.size,
+        subjects: [m.subject],
+      });
+    }
+  }
+
+  const totalScanned = metas.length;
+  const sorted = [...buckets.values()].sort((a, b) => b.count - a.count);
+  const top = sorted.slice(0, topN);
+
+  const topNCount = top.reduce((acc, s) => acc + s.count, 0);
+  const topNPercent = totalScanned > 0
+    ? Math.round((topNCount / totalScanned) * 1000) / 10
+    : 0;
+
+  return {
+    totalScanned,
+    totalSendersFound: buckets.size,
+    topSenders: top.map((s) => ({
+      from: s.fromName && s.fromName !== s.fromEmail
+        ? `${s.fromName} <${s.fromEmail}>`
+        : s.fromEmail,
+      fromEmail: s.fromEmail,
+      count: s.count,
+      percentOfScanned: totalScanned > 0
+        ? Math.round((s.count / totalScanned) * 1000) / 10
+        : 0,
+      estimatedKB: Math.round(s.sizeBytes / 1024),
+      sampleSubjects: s.subjects.slice(0, 3),
+    })),
+    coverage: { topN_count: topNCount, topN_percent: topNPercent },
+  };
+}
