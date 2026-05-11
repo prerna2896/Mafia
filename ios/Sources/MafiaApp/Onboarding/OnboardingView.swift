@@ -87,11 +87,12 @@ private let onboardingSenderTotal: Int = onboardingTopSenders.reduce(0) { $0 + $
 // MARK: - OnboardingView
 
 public struct OnboardingView: View {
-    private static let totalSteps = 7
+    private static let totalSteps = 8
 
     @State private var step: Int = 1
     @State private var pickedSurfaceID: String? = nil
     @State private var grantedRead: Bool = false
+    @State private var extraSurfaceIDs: Set<String> = []
 
     let onDone: () -> Void
 
@@ -111,7 +112,7 @@ public struct OnboardingView: View {
         switch n {
         case 1, 2:        return true
         case 3, 4:        return pickedSurface != nil
-        case 5, 6, 7:     return pickedSurface != nil && grantedRead
+        case 5, 6, 7, 8:  return pickedSurface != nil && grantedRead
         default:          return false
         }
     }
@@ -226,7 +227,22 @@ public struct OnboardingView: View {
                     }
                 case 7:
                     if let surface = pickedSurface {
-                        StepWriteScope(surface: surface, onAllow: onDone)
+                        StepWriteScope(surface: surface, onAllow: { go(to: 8) })
+                    }
+                case 8:
+                    if let surface = pickedSurface {
+                        StepConnectMore(
+                            primaryID: surface.id,
+                            selected: extraSurfaceIDs,
+                            onToggle: { id in
+                                if extraSurfaceIDs.contains(id) {
+                                    extraSurfaceIDs.remove(id)
+                                } else {
+                                    extraSurfaceIDs.insert(id)
+                                }
+                            },
+                            onFinish: onDone
+                        )
                     }
                 default:
                     EmptyView()
@@ -273,11 +289,17 @@ private struct StepWelcome: View {
             }
             .padding(.bottom, 32)
 
-            Text("Take space.\nMake space.")
-                .font(MafiaFont.serif(size: 28))
-                .multilineTextAlignment(.center)
-                .lineSpacing(0)
-                .foregroundStyle(MafiaColor.ink)
+            // Two-line headline with mixed sizes — matches prototype:
+            //   small "Takes space" (ink-soft) over large "Creates space" (ink).
+            VStack(spacing: 0) {
+                Text("Takes space")
+                    .font(MafiaFont.serif(size: 20))
+                    .foregroundStyle(MafiaColor.inkSoft)
+                Text("Creates space")
+                    .font(MafiaFont.serif(size: 36))
+                    .foregroundStyle(MafiaColor.ink)
+            }
+            .multilineTextAlignment(.center)
 
             Text("Mafia keeps a copy of everything before it touches your inbox or library.")
                 .font(MafiaFont.body(size: 12.5))
@@ -716,6 +738,24 @@ private struct StepAha: View {
 
     private var isGmail: Bool { surface.id == "gmail" }
 
+    /// `false` until the user taps "Show me first"; once true the sender
+    /// list reveals per-row skip toggles and the CTA flips to "Vault N
+    /// chunks · M items".
+    @State private var showPreview: Bool = false
+
+    /// Set of sender names the user has chosen to exclude from the queue.
+    /// Skipped rows fade to 40% opacity and don't count toward the total.
+    @State private var skipped: Set<String> = []
+
+    /// Senders not in `skipped` — drives the queued-count CTA copy.
+    private var queued: [OnboardingSender] {
+        onboardingTopSenders.filter { !skipped.contains($0.name) }
+    }
+
+    private var queuedTotal: Int {
+        queued.reduce(0) { $0 + $1.count }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             SectionLabel("First finding")
@@ -747,11 +787,26 @@ private struct StepAha: View {
             senderList
                 .padding(.top, 16)
 
+            if showPreview {
+                Text("Vaulting in \(queued.count) chunks · \(queuedTotal.formatted(.number)) items queued · recoverable 30 days")
+                    .font(MafiaFont.body(size: 10.5))
+                    .monospacedDigit()
+                    .foregroundStyle(MafiaColor.inkSoft)
+                    .padding(.top, 8)
+            }
+
+            ctas
+                .padding(.top, 20)
+        }
+    }
+
+    @ViewBuilder private var ctas: some View {
+        if !showPreview {
             VStack(spacing: 8) {
                 Button(action: onAct) {
                     HStack(spacing: 6) {
-                        Text("Vault them all")
-                        Text("· recoverable 30 days").opacity(0.6)
+                        Text("Continue")
+                        Text("· nothing vaulted yet").opacity(0.6)
                     }
                     .font(MafiaFont.button)
                     .foregroundStyle(.white)
@@ -761,7 +816,7 @@ private struct StepAha: View {
                 }
                 .buttonStyle(.plain)
 
-                Button(action: onAct) {
+                Button(action: { showPreview = true }) {
                     Text("Show me first")
                         .font(MafiaFont.button)
                         .foregroundStyle(MafiaColor.ink)
@@ -772,7 +827,31 @@ private struct StepAha: View {
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.top, 24)
+        } else {
+            VStack(spacing: 8) {
+                Button(action: onAct) {
+                    HStack(spacing: 6) {
+                        Text("Vault \(queued.count) chunk\(queued.count == 1 ? "" : "s")")
+                        Text("· \(queuedTotal.formatted(.number)) items").opacity(0.6)
+                    }
+                    .font(MafiaFont.button)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Capsule().fill(MafiaColor.ink.opacity(queued.isEmpty ? 0.4 : 1.0)))
+                }
+                .buttonStyle(.plain)
+                .disabled(queued.isEmpty)
+
+                Button(action: onAct) {
+                    Text("Skip — just keep the stats")
+                        .font(MafiaFont.body(size: 12))
+                        .foregroundStyle(MafiaColor.inkSoft)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
@@ -793,6 +872,7 @@ private struct StepAha: View {
     private var senderList: some View {
         VStack(spacing: 0) {
             ForEach(Array(onboardingTopSenders.enumerated()), id: \.element.id) { idx, s in
+                let isSkipped = skipped.contains(s.name)
                 HStack(spacing: 12) {
                     Circle()
                         .fill(s.color)
@@ -813,9 +893,28 @@ private struct StepAha: View {
                             .foregroundStyle(MafiaColor.inkSoft)
                     }
                     Spacer(minLength: 0)
+
+                    if showPreview {
+                        Button(action: {
+                            if isSkipped {
+                                skipped.remove(s.name)
+                            } else {
+                                skipped.insert(s.name)
+                            }
+                        }) {
+                            Text(isSkipped ? "Include" : "Skip")
+                                .font(MafiaFont.body(size: 10.5, weight: .medium))
+                                .foregroundStyle(MafiaColor.ink)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(MafiaColor.surface))
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
+                .opacity(isSkipped ? 0.4 : 1.0)
                 if idx != onboardingTopSenders.count - 1 {
                     Divider().background(Color.black.opacity(0.04))
                 }
@@ -897,6 +996,137 @@ private struct StepWriteScope: View {
             .font(MafiaFont.body(size: 10.5, weight: .medium))
             .tracking(1.4)
             .foregroundStyle(color)
+    }
+}
+
+// MARK: - Step 8: Connect more surfaces
+
+/// Optional cross-surface dedup invitation. Lists the four surfaces the
+/// user did NOT pick in step 2, each as a multi-select toggle card. The
+/// primary CTA always finishes — selections are advisory and skipping
+/// is fine.
+private struct StepConnectMore: View {
+    let primaryID: String
+    let selected: Set<String>
+    let onToggle: (String) -> Void
+    let onFinish: () -> Void
+
+    /// Other surfaces (the four the user did not pick in step 2).
+    private var remaining: [OnboardingSurface] {
+        onboardingSurfaces.filter { $0.id != primaryID }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            SectionLabel("Almost done")
+
+            Text("Connect more surfaces?")
+                .font(MafiaFont.serif(size: 26))
+                .lineSpacing(-2)
+                .foregroundStyle(MafiaColor.ink)
+                .padding(.top, 8)
+
+            Text("Mafia treats one item across surfaces as one entity. Connect more for cross-surface dedup.")
+                .font(MafiaFont.body(size: 12))
+                .foregroundStyle(MafiaColor.inkSoft)
+                .padding(.top, 8)
+
+            VStack(spacing: 8) {
+                ForEach(remaining) { surface in
+                    Button(action: { onToggle(surface.id) }) {
+                        ConnectMoreRow(
+                            surface: surface,
+                            selected: selected.contains(surface.id)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 20)
+
+            VStack(spacing: 8) {
+                Button(action: onFinish) {
+                    Text(selected.isEmpty
+                         ? "Finish setup"
+                         : "Connect \(selected.count) more · Finish")
+                        .font(MafiaFont.button)
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(Capsule().fill(MafiaColor.ink))
+                }
+                .buttonStyle(.plain)
+
+                Button("Add later", action: onFinish)
+                    .font(MafiaFont.body(size: 12))
+                    .foregroundStyle(MafiaColor.inkSoft)
+                    .padding(.top, 4)
+            }
+            .padding(.top, 24)
+        }
+    }
+}
+
+/// One toggle card in the step-8 list. Ring darkens to `ink` when on,
+/// trailing circle flips from neutral surface to filled `ink` with a
+/// checkmark.
+private struct ConnectMoreRow: View {
+    let surface: OnboardingSurface
+    let selected: Bool
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // TODO(assets): swap the solid color chip for the real surface icon.
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(surface.tint.opacity(0.4))
+                .frame(width: 40, height: 40)
+                .overlay(
+                    Text(surface.initials)
+                        .font(MafiaFont.body(size: 12, weight: .semibold))
+                        .foregroundStyle(MafiaColor.ink)
+                )
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(surface.name)
+                    .font(MafiaFont.body(size: 13, weight: .medium))
+                    .foregroundStyle(MafiaColor.ink)
+                Text(surfaceSubtext[surface.id] ?? "Read-only access")
+                    .font(MafiaFont.body(size: 11))
+                    .foregroundStyle(MafiaColor.inkSoft)
+            }
+
+            Spacer(minLength: 0)
+
+            ZStack {
+                Circle()
+                    .fill(selected ? MafiaColor.ink : MafiaColor.surface)
+                    .frame(width: 20, height: 20)
+                if selected {
+                    Path { p in
+                        p.move(to: CGPoint(x: 5.5, y: 10.5))
+                        p.addLine(to: CGPoint(x: 8.5, y: 13.5))
+                        p.addLine(to: CGPoint(x: 14.5, y: 6.5))
+                    }
+                    .stroke(Color.white,
+                            style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                    .frame(width: 20, height: 20)
+                } else {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(MafiaColor.inkSoft)
+                }
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(selected ? MafiaColor.ink : MafiaColor.ring,
+                              lineWidth: selected ? 1.5 : 1)
+        )
     }
 }
 
