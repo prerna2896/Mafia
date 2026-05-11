@@ -1,0 +1,51 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# Xcode
+xcuserdata/
+DerivedData/
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editors
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# CocoaPods (in case anyone adds it later — we don't recommend it)
+Pods/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Secrets (defensive)
+*.env
+*.p8
+*.p12
+*.mobileprovision
+GoogleService-Info.plist
+
+# Carthage
+Carthage/Build/
+Carthage/Checkouts
+
+# Generated docs
+docs/build/
