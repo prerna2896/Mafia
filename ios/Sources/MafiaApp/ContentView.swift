@@ -59,27 +59,4 @@ private struct MafiaTabShell: View {
     }
 }
 
-// MARK: - Stub sign-in screen
-//
-// Real implementation will mirror `vault-view/src/components/mafia/onboarding/SignIn.tsx`:
-// Apple + Google CTAs plus a "Restore from another device" QR + 6-digit OTP.
-//
-private struct SignInView: View {
-    let onDone: () -> Void
-
-    var body: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            SectionLabel("Welcome")
-            Text("Take space.\nMake space.")
-                .font(MafiaFont.displayM)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(MafiaColor.ink)
-            Spacer()
-            PillButton("Continue with Apple", style: .primary, action: onDone)
-            PillButton("Continue with Google", style: .secondary, action: onDone)
-                .padding(.bottom, 40)
-        }
-        .padding(.horizontal, 24)
-    }
-}
+// SignInView and OnboardingView are defined in `Onboarding/`.
