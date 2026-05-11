@@ -43,6 +43,22 @@ public enum MafiaFont {
 
     /// 10pt uppercase with tight letter spacing. Used by `SectionLabel`.
     public static let eyebrow = Font.system(size: 10, weight: .medium, design: .default)
+
+    // MARK: Factory helpers
+    //
+    // For one-off sizes not covered by the named tokens above. When the
+    // Xcode project lands, these will switch to `Font.custom("Fraunces", ...)`
+    // / `Font.custom("Inter", ...)` and pick up the registered variable fonts.
+
+    /// Fraunces-equivalent serif font at the given size.
+    public static func serif(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        Font.system(size: size, weight: weight, design: .serif)
+    }
+
+    /// Inter-equivalent body font at the given size.
+    public static func body(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        Font.system(size: size, weight: weight, design: .default)
+    }
 }
 
 // MARK: - TODO(font-registration)

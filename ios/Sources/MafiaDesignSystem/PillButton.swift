@@ -36,14 +36,23 @@ public enum PillButtonStyle {
 public struct PillButton: View {
     private let title: String
     private let style: PillButtonStyle
+    private let fullWidth: Bool
     private let action: () -> Void
 
     @Environment(\.vibe) private var vibe
-    @State private var isPressed = false
 
-    public init(_ title: String, style: PillButtonStyle = .primary, action: @escaping () -> Void) {
+    /// Default `fullWidth: true` matches the onboarding / sign-in CTAs.
+    /// Pass `fullWidth: false` for the invitation card's inline pill, which
+    /// is sized to its label rather than stretching the row.
+    public init(
+        _ title: String,
+        style: PillButtonStyle = .primary,
+        fullWidth: Bool = true,
+        action: @escaping () -> Void
+    ) {
         self.title = title
         self.style = style
+        self.fullWidth = fullWidth
         self.action = action
     }
 
@@ -52,9 +61,9 @@ public struct PillButton: View {
             Text(title)
                 .font(MafiaFont.button)
                 .foregroundStyle(style.foreground)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .frame(maxWidth: fullWidth ? .infinity : nil)
                 .background(
                     Capsule(style: .continuous)
                         .fill(style.background)
@@ -76,3 +85,18 @@ private struct PressableStyle: ButtonStyle {
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
     }
 }
+
+// See note in `Card.swift` about `#Preview` macro availability.
+#if DEBUG
+struct PillButton_Previews: PreviewProvider {
+    static var previews: some View {
+        VStack(spacing: 12) {
+            PillButton("Primary",   style: .primary)   { }
+            PillButton("Secondary", style: .secondary) { }
+            PillButton("Accent",    style: .accent)    { }
+        }
+        .padding(24)
+        .background(MafiaColor.paper)
+    }
+}
+#endif
