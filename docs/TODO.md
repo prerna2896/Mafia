@@ -99,22 +99,25 @@ The 12-item checklist in `docs/LOCAL-TESTING.md` is the human-verifiable gate. R
 >
 > **Design status (2026-05-09 refresh #2):** prototype now realizes ~95% of V1 PRD scope. Closed since last check: pinch-zoom photo viewer, conflict-resolution success state, allowlist editor (Insights "+ Teach a new preference"). Only gap remaining: notification/Live Activity/widget mockups (these can be done directly in Figma — OS chrome is awkward in Lovable). Design is fully unblocked for V1 iOS implementation.
 
-#### Architectural
-- [x] **Commit 1** — Scaffold `wonder/mafia-core-rust/` workspace; port `next_state` to Rust + napi-rs binding (per ADR-0002). 17 Rust fixture tests passing.
-- [x] **Commit 2** — Mafia consumes Rust state machine via `MAFIA_CORE_BACKEND` flag; tests run against both backends. 94→94 parity.
-- [x] **Commit 3** — Port `verify_chain` + `canonical_json` to Rust; cross-language consistency test. 15 Rust core reflog tests + 4 cross-language tests; 98 in Mafia (both backends green).
-- [ ] Port `reflog::append` (first I/O module — uses `rusqlite`)
-- [ ] Port `outbox::commit_action` orchestration
-- [ ] iOS FFI surface — `cargo lipo` Swift Package (replaces `mafia-ios/Sources/MafiaCore` stubs)
+#### Architectural — Rust core
+- [x] **Commit 1** — Scaffold `core-rust/` workspace; port `next_state` to Rust + napi-rs binding. 17 Rust fixture tests.
+- [x] **Commit 2** — Mafia consumes Rust state machine via `MAFIA_CORE_BACKEND` flag; tests run against both backends. 98→98 parity on TS + Rust.
+- [x] **Commit 3** — Port `verify_chain` + `canonical_json` + `compute_entry_hash` to Rust; cross-language consistency test. 15 Rust reflog tests + 4 cross-language tests.
+- [-] **Deferred** — port `reflog::append` + `outbox::commit_action` together (not separately). See ADR-0002 addendum: splitting the outbox transaction across two languages breaks atomicity with `email_actions`. Port becomes necessary when iOS owns its own DB.
+- [ ] iOS FFI surface — `cargo lipo` → Swift Package binding replaces `ios/Sources/MafiaCore` stubs
 - [ ] CRDT for cross-device prefs sync — defer to V2 if not needed for MVP
 
+#### Monorepo restructure — done 2026-05-10
+- [x] `Mafia/` is now the monorepo. `mcp/`, `core-rust/`, `ios/` are sub-projects under it. Subtree merge preserved history from the previously-separate sibling repos.
+- [x] V0 tagged at `v0.2.0` and pushed.
+- [x] Claude Code MCP registration updated to `mcp/dist/index.js` path.
+
 #### iOS app skeleton (V1 base) — done 2026-05-10
-- [x] Swift Package scaffold at `/Users/prernaagarwal/wonder/mafia-ios/`. Compiles + 5 tests passing. 1200 lines across MafiaApp / MafiaDesignSystem / MafiaCore / Tests.
-- [ ] Create `wonder/mafia-ios` GitHub repo + push (local commit `1729e17` ready)
-- [ ] Create `wonder/mafia-core-rust` GitHub repo + push (3 local commits ready)
+- [x] Swift Package scaffold at `ios/`. Compiles + 5 tests passing. 1200 lines across MafiaApp / MafiaDesignSystem / MafiaCore / Tests.
 - [ ] Replace SwiftUI scaffold with real Xcode iOS app target (requires full Xcode, not just CLT)
 - [ ] Bundle Inter + Fraunces fonts via `Info.plist`
 - [ ] Wire MafiaCore Swift module to cargo-lipo Rust binary
+- [ ] Port Home screen + design primitives from `vault-view` to SwiftUI (in flight as of 2026-05-10)
 
 #### iOS app
 - [ ] Photos surface — PhotoKit integration, asset enumeration

@@ -122,8 +122,37 @@ After commit 3, the iOS app can start (it has the trust primitives it needs).
 
 ## Open questions for V1 kickoff
 
-1. **Repo: separate (`wonder/mafia-core-rust/`) or workspace member of Mafia?** Separate is cleaner long-term but adds ceremony today.
-2. **napi-rs version + Node target.** Need to support Node 22+ for Mafia's MCP host.
+1. ~~**Repo: separate or workspace member?**~~ **Resolved 2026-05-10:** monorepo under `Mafia/{mcp,core-rust,ios}/`. Subtree-merged from the previously-separate sibling repos with full history.
+2. **napi-rs version + Node target.** Need to support Node 22+ for Mafia's MCP host. *(Using napi-rs 2.16 + napi8 feature; works with Node 18+.)*
 3. **iOS team.** Are you building iOS yourself, or hiring? Affects timeline materially.
 4. **CASA audit.** Email scope for Phase 3 needs an annual security review (~$15–75k, 4–6 month process). Lock budget + auditor by month 9 if Phase 3 is to ship on schedule.
 5. **Naming.** PRD §13.1 — still TBD. "Vault" is the *feature*; the brand isn't decided.
+
+---
+
+## Addendum (2026-05-10) — status after Commits 1–3
+
+**Done:**
+- ✅ **Commit 1** — Rust core scaffolded at `core-rust/`. `next_state` ported with 17 fixture tests mirroring `mcp/tests/state-machine.test.ts`. napi-rs binding exposes `nextState`, `isTerminal`, `isInFlight`, `version` to Node.
+- ✅ **Commit 2** — Mafia consumes the binding via `MAFIA_CORE_BACKEND=rust` env flag. Mafia's TS state-machine delegates to Rust when flag set. 98 tests pass on both backends (`npm run test:matrix`).
+- ✅ **Commit 3** — `verify_chain` + `canonical_json` + `compute_entry_hash` ported. 15 Rust core reflog tests + 4 cross-language consistency tests in `mcp/tests/cross-language-reflog.test.ts`. Rust verifier accepts TS-written reflogs; tamper detection works across the FFI boundary.
+
+**Deferred — and the reason matters:**
+
+Steps 4–5 in the original port table (`reflog::append`, `outbox::commit_action`) are intentionally **not in the current scope**. The reason: the outbox writes to `email_actions` AND `reflog` in the same SQLite transaction, atomically. Porting just `reflog::append` to Rust splits that transaction across two languages (Rust opens its own SQLite connection via `rusqlite`; Node uses `better-sqlite3`) — they can't share a transaction, so the atomicity guarantee breaks. That's a regression for the trust pillar.
+
+The right move is to port `outbox::commit_action` and `reflog::append` **together**, not separately. And that port only becomes necessary when the iOS app actually needs to *own* the trust state (it currently uses stub `MafiaCore`). So we defer until iOS app implementation gets to the point of doing real reads/writes, and then we port the outbox as a single atomic unit.
+
+**What's already enough for iOS to start:**
+- `next_state` for state validation
+- `compute_entry_hash` + `canonical_json` for reflog write-time hashing (iOS code does the SQL insert itself, just like Mafia does today)
+- `verify_chain` for restore-time / audit-time validation
+
+iOS work can begin against this surface area. The MafiaCore stub in `ios/Sources/MafiaCore/` is the swap point — when the iOS Rust FFI binding is built (via `cargo-lipo` → Swift Package), those stubs get replaced by real calls.
+
+**Net architectural assessment:** the ADR's stated goal — *single source of truth for trust primitives across Mafia and iOS* — is achieved for the pure / read-only primitives. The atomic-write primitive (the outbox) stays in each platform's native language until cross-language transactions become possible (which is "never" with SQLite — meaning the outbox owner is whichever platform owns the DB connection). Concretely:
+
+- **Mafia (Node):** owns its own DB at `mcp/data/mafia.db`; uses TS outbox; calls Rust for hash compute + verify
+- **iOS (future):** will own its own DB at the iOS app sandbox; will use a Rust outbox built on `rusqlite`; same `core-rust/core/` module
+
+Both consume the same `core-rust/core/` for the pure parts; each has its own thin I/O wrapper for the transactional part. That's the durable shape.
