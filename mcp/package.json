@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.0",
-    "@mafia/core-node": "file:../mafia-core-rust/ffi-node",
+    "@mafia/core-node": "file:../core-rust/ffi-node",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "better-sqlite3": "^12.9.0",
     "dotenv": "^16.4.5",

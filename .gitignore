@@ -1,20 +1,46 @@
-node_modules/
-dist/
-data/
+# ── Shared / OS ─────────────────────────────────────────────────────────────
+.DS_Store
 .env
 .env.*
 !.env.example
-*.db
-*.db-shm
-*.db-wal
-*.dmg
 client_secret*.json
 *.token.json
-coverage/
-evals/runs/
-.DS_Store
+*.dmg
 
-# Lovable prototype — kept locally for design reference, not part of Mafia
+# ── Lovable prototype (design reference, not part of Mafia) ─────────────────
 vault-view/
 prototype/
 mafia-prototype/
+
+# ── mcp/ (Node MCP server) ──────────────────────────────────────────────────
+mcp/node_modules/
+mcp/dist/
+mcp/data/
+mcp/coverage/
+mcp/evals/runs/
+mcp/*.db
+mcp/*.db-shm
+mcp/*.db-wal
+
+# ── core-rust/ (Rust core + napi-rs binding) ────────────────────────────────
+core-rust/target/
+core-rust/**/*.rs.bk
+core-rust/*.pdb
+core-rust/Cargo.lock.bak
+core-rust/**/*.node
+core-rust/ffi-node/node_modules/
+core-rust/**/.napirc
+
+# ── ios/ (Swift Package + future Xcode project) ─────────────────────────────
+ios/.build/
+ios/.swiftpm/
+ios/DerivedData/
+ios/xcuserdata/
+ios/*.xcodeproj/project.xcworkspace/xcuserdata/
+ios/*.xcodeproj/xcuserdata/
+ios/*.xcworkspace/xcuserdata/
+
+# ── Editors ─────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
