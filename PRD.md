@@ -127,10 +127,32 @@ Read-only by default; write/delete scope is opt-in per surface.
 
 **Mechanics:**
 - Three-stage lifecycle (internal terms): **flagged → vaulted → purged** (default purge horizon: 30 days).
-- Provider trash used where available; app-managed vault where not. **Mafia's reflog/vault is the source of truth; provider trash is a backup mirror** (see §13 NH-5).
+- Provider trash used where available; app-managed vault where not. **Mafia's reflog/vault is the source of truth; provider trash is a backup mirror.**
 - Pre-action snapshot: hash + thumbnail + metadata + source-surface pointers retained for restore.
 - Sync-aware vaulting: when an entity exists on multiple surfaces, user chooses propagation per-surface to prevent restore-loops.
 - **Time-machine restore**: snapshot semantics; "restore my photo library to last Tuesday" as one action.
+
+#### Partial-failure recovery
+
+The claim "Mafia's reflog/vault is the source of truth" only holds if the app can recover from the provider failing or diverging. The matrix below defines what recovery looks like in each case.
+
+| Failure case | `restore` return | User-visible message | Local `body_blob` role |
+|---|---|---|---|
+| **Gmail trash purges before 30d** (Gmail auto-purge or quota trim) | Success — restore from local `body_blob` via `messages.insert` | "Restored from local copy (not from Gmail trash)" | Essential: this is the only copy. `body_blob` must be non-NULL for delete-intent actions. |
+| **User empties Gmail trash manually mid-window** | Success — same path as above via `body_blob` | "Restored from local copy" | Essential. |
+| **`messages.untrash` returns 404** (message no longer exists upstream) | Success if `body_blob` present; error if archive-intent (no blob) | "Restored from local copy" or "Cannot restore — no local body stored for archive actions" | Not stored for archive intent (ADR-0001 design); archive-intent restore fails gracefully with an honest error. |
+| **`messages.insert` (re-upload) fails** (network error, quota exceeded) | Retriable error; action stays in `restoring` state for retry | "Restore failed — will retry. Your data is safe locally." | Safe: blob still present; outbox will retry on next startup. |
+| **Clock skew between provider and Mafia** (provider reports purge before local 30d window) | No impact on restore path — Mafia's local `purge_after` timestamp governs; provider state is advisory | N/A | N/A — clock skew does not affect blob retention. |
+
+**Reconciliation when Mafia and Gmail disagree:**
+
+1. Mafia's local snapshot is authoritative for restore. Provider trash state is a performance optimization (fast path when the message still exists upstream), not a dependency.
+2. When the fast path fails, the slow path is: read `body_blob` from `email_snapshots`, decompress, re-upload via `messages.insert` with `internalDateSource=dateHeader` to preserve original timestamps.
+3. Re-uploaded messages receive a **new Gmail message ID** — the old ID is gone. The reflog records the new ID on the `restored` transition so the action chain stays coherent.
+4. If re-upload is the only available path and the user wants the message back in a specific label/folder, labels are re-applied via `batchModify` after insert.
+5. For archive-intent actions: no `body_blob` was stored (body is recoverable from `[Gmail]/All Mail`). If `All Mail` also no longer contains the message (account deletion, Workspace admin purge), restore is not possible. This is documented as an explicit limitation; the user is told "this message is no longer recoverable" and offered to remove it from the Vault view.
+
+**What is not recoverable:** archive-intent actions where Gmail has permanently deleted the message from `All Mail` (e.g., admin force-purge, account closure). The snapshot contains headers and label state but not body. Users who want deep-restore on archive-intent items must explicitly opt into `store_body_for_archives` (a future paid-tier setting, Phase 4).
 
 ### 5.5 Reflect (Investment & Variable Reward)
 
@@ -393,7 +415,7 @@ Cancel-from-app, transparent pricing, prorated refunds.
 - **TODO NH-2:** Make NL retrieval a literal step in the destruction flow — "Want to retrieve before we vault?" prompt before purge or before large vault batches.
 - **TODO NH-3:** App Intents as identity hooks — ship at least one App Intent in Phase 1 (not Phase 4) so the product is callable from Siri/Shortcuts at MVP.
 - **TODO NH-4:** Quarterly transparency report → reframe as a personal stat report, Wrapped-style. Spec the visual format and what stats matter.
-- **TODO NH-5:** Provider-trash vs. app-reflog priority — already specced in §5.4 (Mafia reflog is source of truth, provider trash is backup). Confirm sync semantics for partial failure: what if provider trash purges before our 30-day window? Spec the recovery path.
+- **NH-5 (resolved):** Partial-failure recovery spec moved to §5.4 "Partial-failure recovery."
 - **TODO NH-6:** Family plan shared restore needs a consent UX — when one family member restores from a shared vault, what does the originating member see / approve?
 
 ---

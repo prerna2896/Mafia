@@ -44,3 +44,6 @@ ios/*.xcworkspace/xcuserdata/
 .idea/
 .vscode/
 *.swp
+
+# ── Claude Code harness (worktrees, transcripts) ────────────────────────────
+.claude/

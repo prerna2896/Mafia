@@ -85,6 +85,18 @@ Living document. Updates land here as work moves through phases.
 ### V0 acceptance — manual
 The 12-item checklist in `docs/LOCAL-TESTING.md` is the human-verifiable gate. Run it once locally before declaring V0 shipped.
 
+### In-flight — V0 gap closure (started 2026-05-11)
+
+Parallel agent work to close the gaps identified in the 2026-05-11 audit. Each line is owned by one agent; other agents must not edit the same files. Status flips `[~]` → `[x]` after the orchestrator merges the agent's branch and tests pass.
+
+- [x] **A-storage** — base64url decode in `snapshot.writeSnapshot` (Gmail's `raw` is base64url); `readBody` now returns `Buffer | null`; `body_size_bytes` records decoded length. `wal_autocheckpoint = 1000` pragma + try/catch'd `PRAGMA wal_checkpoint(TRUNCATE)` in `startupReconcile()`. New round-trip test with non-ASCII bytes.
+- [x] **B-batch** — `GmailAdapter.archiveBatch` wraps `users.messages.batchModify` (up to 500 ids/chunk). New `commitArchiveBatch` in `outbox.ts` keeps per-row reflog entries (`batched: true` payload flag) while firing exactly one Gmail call. `commit-session.ts` splits flagged into keep/archive/delete and routes archive through the batch path. Token-bucket pacing (200 units/sec) in `resilience.ts`; read=1, write=5, batchModify=5+5n. New `archive-batch.test.ts` (50 archives → 1 API call) + resilience pacing tests.
+- [x] **C-product** — `top_senders` MCP tool (sample up to 2000 msgs, aggregate by `fromEmail`, return top-N + coverage %). `daily_brief` MCP resource at `mafia://daily-brief` (via `server.registerResource`) — pending session preview, vault expirations in 3 days, top sender last 7 days, lifetime investment stats. `topSenders()` helper appended to `gmail/client.ts`.
+- [x] **D-privacy** — `MAFIA_SUMMARY_BACKEND` env var: `cloud` (default, Anthropic Haiku), `local` (deterministic rules — automated-sender regex, marketing-keyword list, transactional-domain allowlist), `off` (returns `keep` stub). `EmailSummary.backend` surfaced to tool callers. 16 new tests; cloud client provably not instantiated on `local`/`off`.
+- [x] **E-specs** — `docs/adr/ADR-0003-reflog-anchor-and-checkpoint.md` (RFC-3161 TSA + 1024-entry / 24h Merkle checkpoint); PRD §5.4 "Partial-failure recovery" subsection (5 failure cases × restore behavior); `docs/internaldate-stability.md` (conclusion: keep current scheme, store `Message-ID` header as cross-reference; 5 new test cases proposed).
+
+**Merge state (2026-05-11):** all 4 code branches merged to `main` (no conflicts). `cd mcp && npm test` → **146 passed (15 files)**, +47 from baseline. `npx tsc --noEmit` clean. Worktrees deleted; branches retained locally for traceability (`worktree-agent-*`).
+
 ---
 
 ## V1 — Photos MVP, iOS-first (Phase 1)
