@@ -251,7 +251,7 @@ Updated 2026-05-09. Cross-checked against `vault-view/` HEAD `75ca821`.
 
 | PRD section | In prototype | Status |
 |---|---|---|
-| §5.0 Onboarding ladder | ✅ fully | 7-step `Onboarding.tsx` matches PRD spec exactly; localStorage-persisted; replay debug badge. |
+| §5.0 Onboarding ladder | ✅ fully | **8-step** `Onboarding.tsx` (updated 2026-05-10): rungs 1-7 mirror PRD §5.0, plus a new step 8 "Connect more surfaces" multi-select before finalizing. Step 6 (Aha) now has per-sender skip toggle. Step 1 copy is "Takes space" (small) / "Creates space" (large). localStorage-persisted; replay debug badge. |
 | §5.0a Aha moment | ✅ fully | Onboarding step 6 + Home Discoveries + BurstDetail. Three angles realized. |
 | §5.1 Connect (sources) | ✅ | Surfaces tab + ConnectionCeremony 4-step add flow + ScopeManager per-surface sheet. |
 | §5.2 Discover | ✅ | Home Discoveries scroll + SendersDetail + BurstDetail. SearchVault adds cross-surface lookup. |
@@ -260,7 +260,7 @@ Updated 2026-05-09. Cross-checked against `vault-view/` HEAD `75ca821`.
 | §5.5 Reflect / Insights | ✅ fully | Wrapped-style cards + "this week we learned" panel + editable allowlist (see §5.3). |
 | §5.6 Nudges | ⚠️ partial | Three-archetype invitation card on Home ✅. **Notification / Live Activity / widget mockups still missing.** |
 | §5.7 Agent surface (MCP) | n/a | UI prototype scope; covered by Mafia |
-| §6.2 Read-only-first | ✅ | Onboarding step 3 pre-prompt + step 7 explicit grant; ScopeManager exposes ongoing toggle. |
+| §6.2 Read-only-first | ✅ | Onboarding step 3 pre-prompt + step 7 explicit write-scope grant; step 8 multi-surface connect; ScopeManager exposes ongoing toggle. |
 | §10 Account / sign-in | ✅ | Apple + Google + Restore-from-device. |
 | §12 Monetization (anti-dark-pattern promises) | ✅ | PaywallSheet + CancelSubscriptionSheet + EmailPreviewSheet — all four promises are visualized. |
 
