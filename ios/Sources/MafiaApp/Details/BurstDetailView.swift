@@ -46,11 +46,6 @@ public struct BurstDetailView: View {
                 grid.padding(.top, 20)
                 learningPanel.padding(.top, 28)
                 actionRow.padding(.top, 24)
-                Text("We never permanently delete without you.")
-                    .font(MafiaFont.body(size: 11))
-                    .foregroundStyle(MafiaColor.inkSoft)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.top, 12)
             }
             .padding(.horizontal, 24)
             .padding(.top, 8)

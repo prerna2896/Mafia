@@ -32,11 +32,6 @@ public struct HomeView: View {
                 greeting.padding(.top, 8)
                 invitationCard.padding(.top, 28)
                 discoveries.padding(.top, 36)
-                Text("We never permanently delete without you.")
-                    .font(MafiaFont.body(size: 11))
-                    .foregroundStyle(MafiaColor.inkSoft)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.top, 40)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 128)

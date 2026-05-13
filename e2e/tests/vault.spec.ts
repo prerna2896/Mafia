@@ -107,8 +107,4 @@ test.describe('Vault tab', () => {
     const after = (await label.textContent())?.split('/')[0].trim();
     expect(before).not.toBe(after);
   });
-
-  test('Footer reassurance copy present', async ({ page }) => {
-    await expect(page.getByText('We never permanently delete without you.')).toBeVisible();
-  });
 });

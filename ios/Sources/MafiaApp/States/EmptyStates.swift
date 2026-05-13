@@ -67,7 +67,7 @@ public struct VaultEmpty: View {
                 .foregroundStyle(MafiaColor.ink)
                 .multilineTextAlignment(.center)
                 .padding(.top, 24)
-            Text("Items you move from your inbox or library will live here for 30 days. We never permanently delete without you.")
+            Text("Items you move from your inbox or library will live here for 30 days.")
                 .font(MafiaFont.body(size: 12.5))
                 .foregroundStyle(MafiaColor.inkSoft)
                 .multilineTextAlignment(.center)

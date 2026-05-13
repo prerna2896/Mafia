@@ -111,11 +111,3 @@ await page.addInitScript(() => {
 
 Otherwise the SendersDetail spec's `\d+ senders` regex will tolerate either
 the mock count (8) or the live count.
-
-## Known prototype regression flagged from tests
-
-- `home.spec.ts` `Footer reassurance copy present` is `test.skip`'d — the
-  trust mantra "We never permanently delete without you." was removed from
-  Home.tsx in a recent Lovable refresh. DESIGN.md §5 still lists it as the
-  canonical footer for Home / Vault / BurstDetail. Restore it in
-  `vault-view` to re-enable the test.

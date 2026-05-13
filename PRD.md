@@ -121,7 +121,6 @@ Read-only by default; write/delete scope is opt-in per surface.
 **Copy rules (apply throughout app and notifications):**
 - "Delete N items" → "Move N to Vault"
 - "This cannot be undone" → "Recoverable for 30 days"
-- Subtext on any vault action screen: "We never permanently delete without you."
 
 **Vault as a top-level surface.** Vault is a first-class tab/screen in the app, not a buried recovery flow. Users can browse, search, restore, and pre-emptively rescue items from it directly. Weekly notification: "Vault contents purging in 3 days — anything to keep?" (positive trigger, not guilt).
 
@@ -387,7 +386,7 @@ Without these, Phase 0 retention is invisible because the user has no reason to 
 - **Family ($9.99/mo, 5 seats):** shared Vault tier, per-member privacy.
 - **Future B2B:** SMB plan for shared drives — not before V4.
 
-User-facing copy follows §5.4 Vault rules ("Move N to Vault," "Recoverable for 30 days," "We never permanently delete without you").
+User-facing copy follows §5.4 Vault rules ("Move N to Vault," "Recoverable for 30 days").
 
 **Anti-pattern commitments (testable, not aspirational).** Competitor reviews are dominated by day-1 charges on "free trials," denied refunds, and hard-to-cancel auto-renewals. We commit to the following — each is QA-verifiable and should be checked at every release:
 

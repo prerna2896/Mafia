@@ -165,7 +165,6 @@ These strings appear repeatedly and define the brand voice. **Use them verbatim 
 
 | Where | Copy |
 |---|---|
-| Footer of Home, Vault, BurstDetail | *"We never permanently delete without you."* |
 | Vault subtitle | *"Recoverable for 30 days. Nothing here is gone."* |
 | Surfaces subtitle | *"One library, many places. Sync stays read-only unless you say otherwise."* |
 | Surfaces footer | *"Mafia treats one photo across surfaces as one entity."* |

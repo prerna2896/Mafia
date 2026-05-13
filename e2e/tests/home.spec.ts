@@ -80,13 +80,4 @@ test.describe('Home tab', () => {
     // API yields top_n requested, default 10). Accept any small N.
     await expect(page.getByText(/\d+ senders are responsible for/)).toBeVisible();
   });
-
-  test.skip('Footer reassurance copy present', async ({ page }) => {
-    // PROTOTYPE REGRESSION: a recent Lovable refresh removed the
-    // "We never permanently delete without you." footer from Home.tsx.
-    // Per DESIGN.md §5 the trust mantra should appear on Home / Vault /
-    // BurstDetail. Vault.spec still asserts it; restoring on Home is a
-    // prototype fix the user should make in vault-view.
-    await expect(page.getByText('We never permanently delete without you.')).toBeVisible();
-  });
 });

@@ -189,11 +189,6 @@ public struct VaultView: View {
                 purgeBanner.padding(.top, 20)
                 segmented.padding(.top, 20)
                 groupedList.padding(.top, 24)
-                Text("We never permanently delete without you.")
-                    .font(MafiaFont.body(size: 11))
-                    .foregroundStyle(MafiaColor.inkSoft)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.top, 32)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 128)
