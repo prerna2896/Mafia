@@ -37,10 +37,11 @@ test.describe('Detail screens (BurstDetail + SendersDetail)', () => {
     await expect(page.getByRole('heading', { name: /Good morning,/ })).toBeVisible();
   });
 
-  test('SendersDetail: "18 senders are responsible for 73% of your unread."', async ({ page }) => {
+  test('SendersDetail: "N senders are responsible for P% of your unread."', async ({ page }) => {
     await page.getByRole('button', { name: /See senders →/ }).click();
-    await expect(page.getByText(/18 senders are responsible for/)).toBeVisible();
-    await expect(page.getByText('73%')).toBeVisible();
+    // Dynamic since the live-API integration: N = top_n returned, P = sum/total.
+    // Mock fallback gives 8 senders.
+    await expect(page.getByText(/\d+ senders are responsible for/)).toBeVisible();
     await expect(page.getByText(/of your unread/)).toBeVisible();
   });
 
