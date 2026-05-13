@@ -11,12 +11,45 @@
 //  patterns), §5 (microcopy library). Mock data mirrors
 //  `vault-view/src/components/mafia/data.ts`'s `surfaces` array.
 //
-//  TODO(actions): wire Manage / Add / Reconnect into real sheets
-//      (ScopeManager, ConnectionCeremony, Reconnect) once those are
-//      ported. Right now the pills are present but no-op.
+//  TODO(actions): wire Reconnect pill (warn-health rows) into the
+//      ReconnectSheet once that's ported. Manage / Add / row-tap /
+//      coherence-duplicates are wired below to ScopeManagerSheet,
+//      ConnectionCeremonyView, SurfaceDetailView and ConflictResolutionView
+//      respectively.
 //
 import SwiftUI
 import MafiaDesignSystem
+
+// MARK: - Sheet payload wrappers
+//
+// `.sheet(item:)` and `.fullScreenCover(item:)` require `Identifiable`
+// payloads. The sheets' public descriptor types (`ScopeManagerSurface`,
+// `SurfaceDetailSurface`, `CeremonySurface`) are intentionally plain
+// value types — we wrap them locally so we can drive presentation by
+// setting/clearing a single optional state.
+
+private struct ScopeManagerPayload: Identifiable {
+    let id: String
+    let surface: ScopeManagerSurface
+}
+
+private struct SurfaceDetailPayload: Identifiable {
+    let id: String
+    let surface: SurfaceDetailSurface
+}
+
+private struct CeremonyPayload: Identifiable {
+    let id: String
+    let surface: CeremonySurface
+}
+
+/// Marker payload for the coherence-card duplicates link. The conflict
+/// sheet doesn't need a per-row descriptor — just a present/dismiss flag —
+/// but `.fullScreenCover(item:)` still wants something Identifiable.
+private struct ConflictPayload: Identifiable {
+    let id: String = "coherence-duplicates"
+    let groups: [ConflictGroup]
+}
 
 // MARK: - Surface model
 
@@ -57,17 +90,68 @@ private let mockSurfaces: [Surface] = [
             lastSync: "—",           scope: .readOnly,  health: .off,  connected: false),
 ]
 
+// Brand tints reused for the mock conflict groups, mirroring the inline
+// data block in `vault-view/.../mafia/_sheets/ConflictResolution.tsx`.
+private let icloudTint = Color(.displayP3, red: 0.659, green: 0.780, blue: 0.980, opacity: 1)
+private let gphotosTint = Color(.displayP3, red: 0.965, green: 0.718, blue: 0.690, opacity: 1)
+private let driveTint = Color(.displayP3, red: 1.000, green: 0.878, blue: 0.541, opacity: 1)
+
+/// Mock cross-surface duplicate groups surfaced when the user taps the
+/// coherence card's "Cross-surface duplicates · 6%" target. 4 groups,
+/// mirroring the shape (though not the exact size) of the inline mock in
+/// `ConflictResolution.tsx`.
+private let mockSurfacesConflictGroups: [ConflictGroup] = [
+    ConflictGroup(id: "sg1", surfaces: [
+        ConflictSurface(id: "sg1-icloud",  name: "iCloud",        color: icloudTint),
+        ConflictSurface(id: "sg1-gphotos", name: "Google Photos", color: gphotosTint),
+    ]),
+    ConflictGroup(id: "sg2", surfaces: [
+        ConflictSurface(id: "sg2-icloud",  name: "iCloud",        color: icloudTint),
+        ConflictSurface(id: "sg2-gphotos", name: "Google Photos", color: gphotosTint),
+        ConflictSurface(id: "sg2-drive",   name: "Drive",         color: driveTint),
+    ]),
+    ConflictGroup(id: "sg3", surfaces: [
+        ConflictSurface(id: "sg3-gphotos", name: "Google Photos", color: gphotosTint),
+        ConflictSurface(id: "sg3-drive",   name: "Drive",         color: driveTint),
+    ]),
+    ConflictGroup(id: "sg4", surfaces: [
+        ConflictSurface(id: "sg4-icloud",  name: "iCloud",        color: icloudTint),
+        ConflictSurface(id: "sg4-drive",   name: "Drive",         color: driveTint),
+    ]),
+]
+
 // MARK: - SurfacesView
 
 public struct SurfacesView: View {
     public init() {}
 
+    // Sheet presentation state. Setting any of these to non-nil triggers
+    // the corresponding `.sheet(item:)` / `.fullScreenCover(item:)` below.
+    @State private var scopeManaging: ScopeManagerPayload?
+    @State private var surfaceDetail: SurfaceDetailPayload?
+    @State private var connectionCeremony: CeremonyPayload?
+    @State private var conflictResolution: ConflictPayload?
+
     public var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 header.padding(.top, 8)
-                SurfacesList(surfaces: mockSurfaces).padding(.top, 24)
-                CoherenceCard().padding(.top, 24)
+                SurfacesList(
+                    surfaces: mockSurfaces,
+                    onManage: { s in scopeManaging = mapToScopePayload(s) },
+                    onRowTap: { s in
+                        guard s.connected else { return }
+                        surfaceDetail = mapToDetailPayload(s)
+                    },
+                    onAdd: { s in connectionCeremony = mapToCeremonyPayload(s) }
+                )
+                .padding(.top, 24)
+                CoherenceCard(
+                    onDuplicatesTap: {
+                        conflictResolution = ConflictPayload(groups: mockSurfacesConflictGroups)
+                    }
+                )
+                .padding(.top, 24)
                 Text("Mafia treats one photo across surfaces as one entity.")
                     .font(MafiaFont.body(size: 11))
                     .foregroundStyle(MafiaColor.inkSoft)
@@ -78,6 +162,104 @@ public struct SurfacesView: View {
             .padding(.bottom, 128)
         }
         .background(MafiaColor.paper.ignoresSafeArea())
+        // Manage pill → scope manager (modal sheet, large detent).
+        .sheet(item: $scopeManaging) { payload in
+            ScopeManagerSheet(
+                surface: payload.surface,
+                onClose: { scopeManaging = nil }
+            )
+        }
+        // `.fullScreenCover` is iOS-only; on macOS the package still
+        // compiles via SwiftPM (see Package.swift) so fall back to `.sheet`
+        // there. iOS gets the immersive full-screen overlay per spec.
+        #if os(iOS)
+        // Whole-row tap on connected surface → full-screen detail.
+        .fullScreenCover(item: $surfaceDetail) { payload in
+            SurfaceDetailView(
+                surface: payload.surface,
+                onClose: { surfaceDetail = nil }
+            )
+        }
+        // Add pill on disconnected (Dropbox) row → ceremony overlay.
+        .fullScreenCover(item: $connectionCeremony) { payload in
+            ConnectionCeremonyView(
+                surface: payload.surface,
+                onClose: { connectionCeremony = nil }
+            )
+        }
+        // Coherence card duplicates link → conflict resolver.
+        .fullScreenCover(item: $conflictResolution) { payload in
+            ConflictResolutionView(
+                groups: payload.groups,
+                onClose: { conflictResolution = nil }
+            )
+        }
+        #else
+        .sheet(item: $surfaceDetail) { payload in
+            SurfaceDetailView(
+                surface: payload.surface,
+                onClose: { surfaceDetail = nil }
+            )
+        }
+        .sheet(item: $connectionCeremony) { payload in
+            ConnectionCeremonyView(
+                surface: payload.surface,
+                onClose: { connectionCeremony = nil }
+            )
+        }
+        .sheet(item: $conflictResolution) { payload in
+            ConflictResolutionView(
+                groups: payload.groups,
+                onClose: { conflictResolution = nil }
+            )
+        }
+        #endif
+    }
+
+    // MARK: payload mapping
+    //
+    // The Surfaces tab's private `Surface` model carries everything the
+    // sheets need, but each sheet declares its own minimal descriptor
+    // type. We translate at the call site so the sheets stay decoupled.
+
+    private func mapToScopePayload(_ s: Surface) -> ScopeManagerPayload {
+        ScopeManagerPayload(
+            id: s.id,
+            surface: ScopeManagerSurface(
+                id: s.id,
+                name: s.name,
+                initials: s.initials,
+                color: s.color,
+                lastSync: s.lastSync,
+                canModify: s.scope == .readWrite
+            )
+        )
+    }
+
+    private func mapToDetailPayload(_ s: Surface) -> SurfaceDetailPayload {
+        SurfaceDetailPayload(
+            id: s.id,
+            surface: SurfaceDetailSurface(
+                id: s.id,
+                name: s.name,
+                initials: s.initials,
+                color: s.color,
+                lastSync: s.lastSync,
+                scope: s.scope.rawValue
+            )
+        )
+    }
+
+    private func mapToCeremonyPayload(_ s: Surface) -> CeremonyPayload {
+        CeremonyPayload(
+            id: s.id,
+            surface: CeremonySurface(
+                id: s.id,
+                name: s.name,
+                initials: s.initials,
+                color: s.color
+            )
+        )
     }
 
     private var header: some View {
@@ -97,6 +279,9 @@ public struct SurfacesView: View {
 
 private struct SurfacesList: View {
     let surfaces: [Surface]
+    let onManage: (Surface) -> Void
+    let onRowTap: (Surface) -> Void
+    let onAdd: (Surface) -> Void
 
     var body: some View {
         // Card encloses the whole list; per-row hairline dividers between rows,
@@ -104,7 +289,12 @@ private struct SurfacesList: View {
         Card(cornerRadius: 20, padding: 0) {
             VStack(spacing: 0) {
                 ForEach(Array(surfaces.enumerated()), id: \.element.id) { idx, s in
-                    SurfaceRow(surface: s)
+                    SurfaceRow(
+                        surface: s,
+                        onManage: { onManage(s) },
+                        onRowTap: { onRowTap(s) },
+                        onAdd: { onAdd(s) }
+                    )
                     if idx < surfaces.count - 1 {
                         Rectangle()
                             .fill(MafiaColor.ring)
@@ -118,40 +308,50 @@ private struct SurfacesList: View {
 
 private struct SurfaceRow: View {
     let surface: Surface
+    let onManage: () -> Void
+    let onRowTap: () -> Void
+    let onAdd: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            // Colored square w/ initials. ~33% tint matches web `+ "55"`.
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(surface.color.opacity(0.33))
-                .frame(width: 44, height: 44)
-                .overlay(
-                    Text(surface.initials)
-                        .font(MafiaFont.body(size: 12, weight: .semibold))
-                        .foregroundStyle(MafiaColor.ink)
-                )
+        // The row is a full-width button so the entire surface (except the
+        // trailing pill, which has its own gesture) opens SurfaceDetailView.
+        // Disconnected rows ignore taps — the Add pill is the only affordance.
+        Button(action: { if surface.connected { onRowTap() } }) {
+            HStack(spacing: 12) {
+                // Colored square w/ initials. ~33% tint matches web `+ "55"`.
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(surface.color.opacity(0.33))
+                    .frame(width: 44, height: 44)
+                    .overlay(
+                        Text(surface.initials)
+                            .font(MafiaFont.body(size: 12, weight: .semibold))
+                            .foregroundStyle(MafiaColor.ink)
+                    )
 
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(surface.name)
-                        .font(MafiaFont.title)
-                        .foregroundStyle(MafiaColor.ink)
-                    if surface.connected, let dot = healthColor {
-                        Circle().fill(dot).frame(width: 6, height: 6)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(surface.name)
+                            .font(MafiaFont.title)
+                            .foregroundStyle(MafiaColor.ink)
+                        if surface.connected, let dot = healthColor {
+                            Circle().fill(dot).frame(width: 6, height: 6)
+                        }
                     }
+                    Text(subline)
+                        .font(MafiaFont.body(size: 11))
+                        .foregroundStyle(MafiaColor.inkSoft)
+                        .lineLimit(1)
                 }
-                Text(subline)
-                    .font(MafiaFont.body(size: 11))
-                    .foregroundStyle(MafiaColor.inkSoft)
-                    .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                trailingPill
             }
-
-            Spacer(minLength: 8)
-
-            trailingPill
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .buttonStyle(.plain)
     }
 
     private var healthColor: Color? {
@@ -172,25 +372,32 @@ private struct SurfaceRow: View {
     @ViewBuilder
     private var trailingPill: some View {
         if surface.connected {
-            // TODO(actions): present ScopeManager sheet.
-            Text("Manage")
+            // Manage pill → ScopeManagerSheet. Nested Button intercepts taps
+            // so the parent row-tap doesn't also fire.
+            Button(action: onManage) {
+                Text("Manage")
+                    .font(MafiaFont.body(size: 11, weight: .medium))
+                    .foregroundStyle(MafiaColor.ink)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(MafiaColor.surface))
+            }
+            .buttonStyle(.plain)
+        } else {
+            // Add pill (Dropbox row) → ConnectionCeremonyView.
+            Button(action: onAdd) {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("Add")
+                }
                 .font(MafiaFont.body(size: 11, weight: .medium))
-                .foregroundStyle(MafiaColor.ink)
+                .foregroundStyle(.white)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(Capsule().fill(MafiaColor.surface))
-        } else {
-            // TODO(actions): present ConnectionCeremony sheet.
-            HStack(spacing: 4) {
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .semibold))
-                Text("Add")
+                .background(Capsule().fill(MafiaColor.ink))
             }
-            .font(MafiaFont.body(size: 11, weight: .medium))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(MafiaColor.ink))
+            .buttonStyle(.plain)
         }
     }
 }
@@ -198,6 +405,8 @@ private struct SurfaceRow: View {
 // MARK: - Cross-surface coherence card
 
 private struct CoherenceCard: View {
+    let onDuplicatesTap: () -> Void
+
     // Stats grid content — kept inline because no other surface needs it.
     private let stats: [(n: String, l: String)] = [
         ("12,847", "Entities"),
@@ -219,11 +428,20 @@ private struct CoherenceCard: View {
 
                 HStack {
                     Text("Unique entities · 94%")
+                        .font(MafiaFont.body(size: 10.5))
+                        .foregroundStyle(MafiaColor.inkSoft)
                     Spacer()
-                    Text("Cross-surface duplicates · 6%")
+                    // Tap target → ConflictResolutionView. Matches the
+                    // prototype's underlined ink-tone link on the right side
+                    // of the bar legend.
+                    Button(action: onDuplicatesTap) {
+                        Text("Cross-surface duplicates · 6%")
+                            .font(MafiaFont.body(size: 10.5))
+                            .foregroundStyle(MafiaColor.ink)
+                            .underline()
+                    }
+                    .buttonStyle(.plain)
                 }
-                .font(MafiaFont.body(size: 10.5))
-                .foregroundStyle(MafiaColor.inkSoft)
                 .padding(.top, 8)
 
                 HStack(spacing: 12) {
