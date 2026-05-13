@@ -136,6 +136,16 @@ private func orderedGroups(_ items: [VaultItem]) -> [(String, [VaultItem])] {
 
 // MARK: - Main view
 
+/// Drives the `.fullScreenCover(item:)` for `PhotoViewerView`. Identifiable
+/// wrapper around the photo names + start index so SwiftUI can present /
+/// dismiss based on `nil` state. The `id` is the parent row id so re-tapping
+/// the same row re-presents (in case of dismissal).
+private struct PhotoViewerContext: Identifiable {
+    let id: String
+    let photoNames: [String]
+    let startIndex: Int
+}
+
 public struct VaultView: View {
     @State private var tab: VaultTab = .all
     @State private var restored: Set<String> = []
@@ -143,8 +153,34 @@ public struct VaultView: View {
     @State private var selectedSubs: Set<String> = []
     /// Non-nil drives the WhyVaultedSheet for the matching row.
     @State private var whyItem: VaultItem? = nil
+    /// Non-nil drives the fullscreen PhotoViewer.
+    @State private var photoViewer: PhotoViewerContext? = nil
+    /// Drives the full-screen SearchVault overlay (magnifying-glass tap).
+    @State private var searchOpen: Bool = false
 
     public init() {}
+
+    /// Maps the inlined mock `VaultItem`s into the public `SearchVaultItem`
+    /// descriptor expected by `SearchVaultView`. Keeps the sheet decoupled
+    /// from this file's private model.
+    private var searchItems: [SearchVaultItem] {
+        mockVaultItems.map { item in
+            let kind: SearchVaultKind
+            switch item.kind {
+            case .photo: kind = .photo
+            case .email: kind = .email
+            case .file:  kind = .file
+            }
+            return SearchVaultItem(
+                id: item.id,
+                kind: kind,
+                title: item.title,
+                subtitle: item.subtitle,
+                source: item.source,
+                daysLeft: item.daysLeft
+            )
+        }
+    }
 
     public var body: some View {
         ScrollView {
@@ -170,16 +206,73 @@ public struct VaultView: View {
                 onClose: { whyItem = nil }
             )
         }
+        // `.fullScreenCover` is iOS-only; on macOS we fall back to `.sheet`
+        // so the package still builds via SwiftPM (see SurfacesView for the
+        // same pattern).
+        #if os(iOS)
+        .fullScreenCover(item: $photoViewer) { ctx in
+            PhotoViewerView(
+                photoNames: ctx.photoNames,
+                startIndex: ctx.startIndex,
+                onClose: { photoViewer = nil }
+            )
+        }
+        .fullScreenCover(isPresented: $searchOpen) {
+            SearchVaultView(
+                items: searchItems,
+                onClose: { searchOpen = false },
+                onRestore: { item in
+                    restored.insert(item.id)
+                    searchOpen = false
+                }
+            )
+        }
+        #else
+        .sheet(item: $photoViewer) { ctx in
+            PhotoViewerView(
+                photoNames: ctx.photoNames,
+                startIndex: ctx.startIndex,
+                onClose: { photoViewer = nil }
+            )
+        }
+        .sheet(isPresented: $searchOpen) {
+            SearchVaultView(
+                items: searchItems,
+                onClose: { searchOpen = false },
+                onRestore: { item in
+                    restored.insert(item.id)
+                    searchOpen = false
+                }
+            )
+        }
+        #endif
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Vault")
-                .font(MafiaFont.serif(size: 34))
-                .foregroundStyle(MafiaColor.ink)
-            Text("Recoverable for 30 days. Nothing here is gone.")
-                .font(MafiaFont.body(size: 12))
-                .foregroundStyle(MafiaColor.inkSoft)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Vault")
+                    .font(MafiaFont.serif(size: 34))
+                    .foregroundStyle(MafiaColor.ink)
+                Text("Recoverable for 30 days. Nothing here is gone.")
+                    .font(MafiaFont.body(size: 12))
+                    .foregroundStyle(MafiaColor.inkSoft)
+            }
+            Spacer(minLength: 8)
+            // Trailing magnifying-glass — opens SearchVaultView as a
+            // full-screen overlay. Prototype puts a sticky search bar here;
+            // we collapse that affordance into a single icon button on the
+            // title row, which is the iOS-native pattern.
+            Button { searchOpen = true } label: {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(MafiaColor.ink)
+                    .frame(width: 36, height: 36)
+                    .background(Circle().fill(Color.white))
+                    .overlay(Circle().strokeBorder(MafiaColor.ring, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Search Vault")
         }
     }
 
@@ -268,7 +361,8 @@ public struct VaultView: View {
                                 onRestore: { restored.insert(item.id) },
                                 onToggleReview: { toggleReview(item.id) },
                                 onToggleSub: { toggleSub($0) },
-                                onRestoreSelected: { restoreSelected(for: item) }
+                                onRestoreSelected: { restoreSelected(for: item) },
+                                onOpenPhoto: { openPhoto(for: item) }
                             )
                             // canPurge: gating on "past N days" is not wired
                             // yet; keep false for now per design notes.
@@ -309,6 +403,29 @@ public struct VaultView: View {
         } else {
             selectedSubs.insert(subID)
         }
+    }
+
+    /// Builds the `photoNames` list for a photo-kind row and presents the
+    /// fullscreen viewer. Bundle rows (e.g. the Goa burst) expose every
+    /// sub-photo as a frame; single rows present just themselves.
+    /// Names are placeholder string keys — PhotoViewerView's placeholder
+    /// hashes them for a deterministic colored tile.
+    /// TODO(assets): swap these for real `PHAsset` identifiers (PRD §12.1).
+    private func openPhoto(for item: VaultItem) {
+        guard item.kind == .photo else { return }
+        let names: [String]
+        if item.isBundle, let subs = mockSubItems[item.id], !subs.isEmpty {
+            // Keeper + sub frames. The mock sub-items start at "Frame 2",
+            // so prefix with the parent row as Frame 1 / the keeper.
+            names = [item.id + "-keeper"] + subs.map { $0.id }
+        } else {
+            names = [item.id]
+        }
+        photoViewer = PhotoViewerContext(
+            id: item.id,
+            photoNames: names,
+            startIndex: 0
+        )
     }
 
     private func restoreSelected(for item: VaultItem) {
@@ -353,6 +470,9 @@ private struct VaultRow: View {
     let onToggleReview: () -> Void
     let onToggleSub: (String) -> Void
     let onRestoreSelected: () -> Void
+    /// Invoked when the user taps a photo-kind thumbnail. Non-photo rows
+    /// ignore this; see `VaultView.openPhoto(for:)`.
+    let onOpenPhoto: () -> Void
 
     private var subs: [SubItem] {
         mockSubItems[item.id] ?? []
@@ -361,7 +481,7 @@ private struct VaultRow: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .top, spacing: 12) {
-                Thumb(item: item)
+                Thumb(item: item, onTap: onOpenPhoto)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
                         .font(MafiaFont.body(size: 13.5, weight: .medium))
@@ -568,9 +688,16 @@ private struct SubRow: View {
 
 private struct Thumb: View {
     let item: VaultItem
+    /// Tap handler — wired only when the row is a `.photo` kind with a
+    /// non-nil `thumbColor`. Non-photo rows render the glyph and ignore taps.
+    let onTap: () -> Void
+
+    private var isTappablePhoto: Bool {
+        item.kind == .photo && item.thumbColor != nil
+    }
 
     var body: some View {
-        ZStack {
+        let content = ZStack {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(item.thumbColor ?? MafiaColor.surface)
             if item.thumbColor == nil {
@@ -581,6 +708,16 @@ private struct Thumb: View {
             }
         }
         .frame(width: 48, height: 48)
+        .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+        if isTappablePhoto {
+            Button(action: onTap) { content }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Open photo")
+                .accessibilityAddTraits(.isImage)
+        } else {
+            content
+        }
     }
 
     private var glyph: String {

@@ -23,6 +23,17 @@ import MafiaDesignSystem
 public struct BurstDetailView: View {
     private let onBack: () -> Void
 
+    /// Drives the fullscreen PhotoViewer when the keeper image is tapped.
+    /// The viewer surfaces all 11 burst frames; the keeper is index 0.
+    @State private var viewerOpen: Bool = false
+
+    /// Placeholder identifiers for the 11 burst frames. `PhotoViewerView`'s
+    /// placeholder logic hashes these for a deterministic colored tile, so
+    /// the strings only matter as stable keys.
+    /// TODO(assets): swap for real `PHAsset` identifiers (PRD §12.1).
+    private static let burstPhotoNames: [String] =
+        (1...11).map { "burst-\($0)" }
+
     public init(onBack: @escaping () -> Void) {
         self.onBack = onBack
     }
@@ -46,6 +57,24 @@ public struct BurstDetailView: View {
             .padding(.bottom, 128)
         }
         .background(MafiaColor.paper.ignoresSafeArea())
+        // `.fullScreenCover` is iOS-only; macOS falls back to `.sheet`.
+        #if os(iOS)
+        .fullScreenCover(isPresented: $viewerOpen) {
+            PhotoViewerView(
+                photoNames: Self.burstPhotoNames,
+                startIndex: 0,
+                onClose: { viewerOpen = false }
+            )
+        }
+        #else
+        .sheet(isPresented: $viewerOpen) {
+            PhotoViewerView(
+                photoNames: Self.burstPhotoNames,
+                startIndex: 0,
+                onClose: { viewerOpen = false }
+            )
+        }
+        #endif
     }
 
     // MARK: - Sub-views
@@ -91,14 +120,20 @@ public struct BurstDetailView: View {
                 // `color-mix(in oklab, var(--sage) 60%, black)`.
                 .foregroundStyle(MafiaColor.ink.opacity(0.75))
             // TODO(assets): replace solid Color with real keeper photo.
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(MafiaColor.amberSoft)
-                .aspectRatio(3.0 / 4.0, contentMode: .fit)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .strokeBorder(MafiaColor.sage, lineWidth: 2)
-                )
-                .padding(.top, 6)
+            Button(action: { viewerOpen = true }) {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(MafiaColor.amberSoft)
+                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(MafiaColor.sage, lineWidth: 2)
+                    )
+                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open keeper photo")
+            .accessibilityAddTraits(.isImage)
+            .padding(.top, 6)
             HStack(spacing: 6) {
                 Text("· 4032×3024")
                 Text("· 3.2 MB")
