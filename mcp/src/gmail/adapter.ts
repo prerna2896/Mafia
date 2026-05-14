@@ -143,10 +143,13 @@ export class GoogleApisGmailAdapter implements GmailAdapter {
         metadataHeaders: includeBody ? undefined : ['From', 'To', 'Cc', 'Subject', 'Date', 'Message-Id', 'References'],
       });
 
-      const headers: Record<string, string> = {};
-      for (const h of res.data.payload?.headers ?? []) {
-        if (h.name && h.value) headers[h.name] = h.value;
-      }
+      // format:'metadata' populates payload.headers; format:'raw' does not —
+      // headers live inside the RFC822 blob itself. The earlier code read
+      // only payload.headers and silently produced empty headers for every
+      // delete-intent snapshot.
+      const headers = includeBody
+        ? parseRawHeaders(res.data.raw ?? '')
+        : payloadHeadersToMap(res.data.payload?.headers ?? []);
 
       return {
         email_id,
@@ -170,4 +173,44 @@ export class GoogleApisGmailAdapter implements GmailAdapter {
       return res.data.labelIds ?? [];
     }, { cost: 1 });
   }
+}
+
+function payloadHeadersToMap(items: Array<{ name?: string | null; value?: string | null }>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const h of items) {
+    if (h.name && h.value) out[h.name] = h.value;
+  }
+  return out;
+}
+
+/**
+ * Extract headers from a base64url-encoded RFC822 blob (Gmail's format:'raw').
+ * Handles header folding (continuation lines beginning with whitespace).
+ * Last-wins on duplicate header names (Received et al), which matches Gmail's
+ * own behavior in payload.headers when both keys appear.
+ */
+export function parseRawHeaders(rawBase64Url: string): Record<string, string> {
+  if (!rawBase64Url) return {};
+  const text = Buffer.from(rawBase64Url, 'base64url').toString('utf-8');
+  const blank = text.search(/\r?\n\r?\n/);
+  const headerBlock = blank === -1 ? text : text.slice(0, blank);
+
+  const unfolded: string[] = [];
+  for (const line of headerBlock.split(/\r?\n/)) {
+    if (/^[ \t]/.test(line) && unfolded.length > 0) {
+      unfolded[unfolded.length - 1] += ' ' + line.trim();
+    } else if (line) {
+      unfolded.push(line);
+    }
+  }
+
+  const headers: Record<string, string> = {};
+  for (const line of unfolded) {
+    const idx = line.indexOf(':');
+    if (idx <= 0) continue;
+    const name = line.slice(0, idx).trim();
+    const value = line.slice(idx + 1).trim();
+    if (name) headers[name] = value;
+  }
+  return headers;
 }
